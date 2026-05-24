@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from aggregator.config import Config
@@ -130,6 +130,15 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
                            at=datetime.now(timezone.utc))
         return RunResult(run_id, "error", 0, 0)
 
+    # Drop items we already delivered in a recent digest for this topic.
+    since = datetime.now(timezone.utc) - timedelta(days=cfg.scoring.dedup_window_days)
+    recent_urls = storage.recently_delivered_urls(topic_id=topic_id, since=since)
+    if recent_urls:
+        before = len(items)
+        items = [it for it in items if it.url not in recent_urls]
+        log.info("filtered %d previously-delivered items; %d remain",
+                 before - len(items), len(items))
+
     top_n = (cfg.crypto_general.top_n if topic_id == "crypto_general"
              else cfg.crypto_watchlist.per_symbol_top_n * len(cfg.crypto_watchlist.symbols))
 
@@ -149,8 +158,18 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
         return RunResult(run_id, "error", fetched, 0)
 
     msg_ids = await send_digest(message_text, topic_id=topic_id, cfg=cfg)
+    delivery_at = datetime.now(timezone.utc)
     storage.log_digest(run_id=run_id, topic_id=topic_id, message_text=message_text,
-                       telegram_message_ids=msg_ids, at=datetime.now(timezone.utc))
+                       telegram_message_ids=msg_ids, at=delivery_at)
+
+    # Record the items we just delivered so the next digest skips them.
+    # Only do this if Telegram actually accepted something (avoid recording on dead-letter).
+    if msg_ids:
+        storage.record_delivered_items(
+            topic_id=topic_id,
+            items=[i.to_dict() for i in ranked],
+            at=delivery_at,
+        )
 
     status = "partial" if fail_count > 0 else "ok"
     storage.finish_run(run_id, status=status, items_fetched=fetched,

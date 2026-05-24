@@ -140,3 +140,84 @@ def test_score_and_dedup_removes_near_duplicates():
 def test_score_and_dedup_handles_empty():
     from aggregator import pipeline
     assert pipeline._score_and_dedup([], top_n=10, per_author_cap=3) == []
+
+
+# Truly different headlines/bodies (no overlap) to bypass Jaccard near-dup
+# collapsing in pipeline._score_and_dedup. Indexed by an integer key 0..N-1.
+_DISTINCT_FIXTURES = [
+    ("Bitcoin breaks $200K barrier amid massive institutional ETF inflows",
+     "Spot bitcoin ETFs absorbed record demand from pension funds this morning"),
+    ("Solana network suffers eight-hour outage disrupting DeFi protocols",
+     "Validators report consensus failure starting at 03:00 UTC affecting Jupiter"),
+    ("Vitalik proposes EIP-7777 for verkle tree gas optimization rollups",
+     "Long-term scaling roadmap update from Ethereum cofounder published today"),
+    ("Cardano launches Hydra layer-2 mainnet beta with throughput claims",
+     "IOG releases the production candidate after eighteen months of testnet trials"),
+    ("Polygon rebrands MATIC to POL and finalizes 1-to-1 token migration",
+     "Holders have ninety days to swap before deprecation of legacy contracts"),
+]
+
+
+def make_distinct_item(source: str, idx: int) -> Item:
+    """Item with content distinct enough to survive Jaccard dedup."""
+    title, body = _DISTINCT_FIXTURES[idx % len(_DISTINCT_FIXTURES)]
+    return Item(
+        id=f"{source}:{idx}",
+        source=source,
+        title=title,
+        url=f"https://example.com/{source}/{idx}",
+        text=body,
+        created_at=datetime.now(timezone.utc),
+        engagement_raw={"upvotes": 1000 - idx * 10},
+        metadata={"subreddit": "CryptoCurrency"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_digest_filters_previously_delivered(cfg, storage):
+    """After one digest delivers item X, the next digest must not include X."""
+    from unittest.mock import AsyncMock, patch
+    from aggregator import pipeline
+
+    first_items = [make_distinct_item("reddit", i) for i in range(3)]
+    with patch.object(pipeline, "_fetch_all", new=AsyncMock(
+        return_value={"reddit": first_items, "polymarket": []}
+    )), patch.object(pipeline, "synthesize", return_value="DIGEST1"
+    ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
+        result1 = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
+    assert result1.status == "ok"
+    assert result1.items_delivered == 3
+
+    # Second run: same 3 reddit items plus 2 truly fresh ones (indices 3, 4).
+    repeat = [make_distinct_item("reddit", i) for i in range(3)]
+    fresh = [make_distinct_item("polymarket", i) for i in range(3, 5)]
+    with patch.object(pipeline, "_fetch_all", new=AsyncMock(
+        return_value={"reddit": repeat, "polymarket": fresh}
+    )), patch.object(pipeline, "synthesize", return_value="DIGEST2"
+    ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[2])):
+        result2 = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
+
+    assert result2.status == "ok"
+    assert result2.items_delivered == 2
+
+
+@pytest.mark.asyncio
+async def test_run_digest_does_not_record_when_telegram_fails(cfg, storage):
+    """If Telegram returns no message_ids, items should NOT be recorded as delivered."""
+    from unittest.mock import AsyncMock, patch
+    from aggregator import pipeline
+
+    items = [make_distinct_item("reddit", i) for i in range(3)]
+    with patch.object(pipeline, "_fetch_all", new=AsyncMock(
+        return_value={"reddit": items, "polymarket": []}
+    )), patch.object(pipeline, "synthesize", return_value="DIGEST"
+    ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[])):
+        await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
+
+    items2 = [make_distinct_item("reddit", i) for i in range(3)]
+    with patch.object(pipeline, "_fetch_all", new=AsyncMock(
+        return_value={"reddit": items2, "polymarket": []}
+    )), patch.object(pipeline, "synthesize", return_value="D2"
+    ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
+        result = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
+    assert result.items_delivered == 3

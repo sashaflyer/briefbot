@@ -66,3 +66,79 @@ def test_record_run_and_digest_log(storage):
     last = storage.last_run("crypto_general")
     assert last["status"] == "ok"
     assert last["items_delivered"] == 5
+
+
+def test_record_and_recall_delivered_items(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from aggregator.storage import Storage
+
+    s = Storage(str(tmp_path / "t.db"))
+    s.init_schema()
+    now = datetime.now(timezone.utc)
+
+    n = s.record_delivered_items(
+        topic_id="crypto_general",
+        items=[
+            {"id": "r:1", "url": "https://reddit.com/1", "title": "A"},
+            {"id": "r:2", "url": "https://reddit.com/2", "title": "B"},
+            {"id": "r:3", "url": "", "title": "no url"},  # should be skipped
+        ],
+        at=now,
+    )
+    assert n == 2
+
+    urls = s.recently_delivered_urls(
+        topic_id="crypto_general",
+        since=now - timedelta(hours=1),
+    )
+    assert urls == {"https://reddit.com/1", "https://reddit.com/2"}
+
+
+def test_recently_delivered_urls_filters_by_topic(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from aggregator.storage import Storage
+
+    s = Storage(str(tmp_path / "t.db"))
+    s.init_schema()
+    now = datetime.now(timezone.utc)
+    s.record_delivered_items(
+        topic_id="crypto_general",
+        items=[{"id": "1", "url": "https://a.com", "title": "A"}],
+        at=now,
+    )
+    s.record_delivered_items(
+        topic_id="crypto_watchlist",
+        items=[{"id": "2", "url": "https://b.com", "title": "B"}],
+        at=now,
+    )
+
+    assert s.recently_delivered_urls(
+        topic_id="crypto_general", since=now - timedelta(hours=1)
+    ) == {"https://a.com"}
+    assert s.recently_delivered_urls(
+        topic_id="crypto_watchlist", since=now - timedelta(hours=1)
+    ) == {"https://b.com"}
+
+
+def test_recently_delivered_urls_filters_by_time(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from aggregator.storage import Storage
+
+    s = Storage(str(tmp_path / "t.db"))
+    s.init_schema()
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=30)
+    s.record_delivered_items(
+        topic_id="crypto_general",
+        items=[{"id": "old", "url": "https://old.com", "title": "old"}],
+        at=old,
+    )
+    s.record_delivered_items(
+        topic_id="crypto_general",
+        items=[{"id": "new", "url": "https://new.com", "title": "new"}],
+        at=now,
+    )
+    recent = s.recently_delivered_urls(
+        topic_id="crypto_general", since=now - timedelta(days=7)
+    )
+    assert recent == {"https://new.com"}

@@ -44,6 +44,18 @@ CREATE TABLE IF NOT EXISTS run_history (
     error_message TEXT,
     trigger TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS delivered_findings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT,
+    delivered_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_delivered_findings_topic_url
+    ON delivered_findings(topic_id, url);
+CREATE INDEX IF NOT EXISTS idx_delivered_findings_topic_delivered_at
+    ON delivered_findings(topic_id, delivered_at);
 """
 
 
@@ -262,5 +274,56 @@ class Storage:
                 (run_id, topic_id, _iso(at), message_text, json.dumps(telegram_message_ids)),
             )
             conn.commit()
+        finally:
+            conn.close()
+
+    # --- Delivered findings (cross-run memory so we don't repeat items) ---
+
+    def record_delivered_items(
+        self,
+        *,
+        topic_id: str,
+        items: List[Dict[str, Any]],
+        at: datetime,
+    ) -> int:
+        """Record the items just delivered for `topic_id` so future digests can
+        filter them out. Skips items with no URL (we have no stable key for those).
+        Returns the number of rows inserted.
+        """
+        ts = _iso(at)
+        conn = self._connect()
+        try:
+            n = 0
+            for it in items:
+                url = (it.get("url") or "").strip()
+                if not url:
+                    continue
+                conn.execute(
+                    """INSERT INTO delivered_findings
+                           (topic_id, item_id, url, title, delivered_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (topic_id, str(it.get("id", "")), url, it.get("title") or "", ts),
+                )
+                n += 1
+            conn.commit()
+            return n
+        finally:
+            conn.close()
+
+    def recently_delivered_urls(
+        self,
+        *,
+        topic_id: str,
+        since: datetime,
+    ) -> set[str]:
+        """Return the set of URLs delivered for `topic_id` at or after `since`."""
+        conn = self._connect()
+        try:
+            cur = conn.execute(
+                """SELECT DISTINCT url FROM delivered_findings
+                       WHERE topic_id = ? AND delivered_at >= ?""",
+                (topic_id, _iso(since)),
+            )
+            return {row["url"] for row in cur.fetchall() if row["url"]}
         finally:
             conn.close()
