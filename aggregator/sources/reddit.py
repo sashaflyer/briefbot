@@ -1,28 +1,76 @@
-"""Reddit source adapter — thin wrapper around vendored reddit_public.
+"""Reddit source adapter.
 
-Translates upstream normalized post dicts into our Item shape. The module-level
-indirections ``_fetch_subreddit`` and ``_search_reddit`` exist so tests can patch
-them without hitting the network.
+The hot-listing path (`_fetch_subreddit`) hits Reddit's public
+`/r/<sub>/hot.json` endpoint directly. The vendored upstream module's `search`
+is used only for symbol-targeted queries (`_search_reddit`).
+
+Module-level `_fetch_subreddit` / `_search_reddit` are kept as patchable
+indirections so tests can mock without touching the network.
 """
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
+import os
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
 from aggregator.sources.base import Item, Source
 from aggregator.vendor.last30days import reddit_public
 
+log = logging.getLogger(__name__)
+
+
+def _user_agent() -> str:
+    """Reddit explicitly blocks generic UAs. Honor REDDIT_USER_AGENT from .env."""
+    return os.environ.get("REDDIT_USER_AGENT", "news-aggregator/0.1")
+
 
 def _fetch_subreddit(sub: str, limit: int = 25) -> list[dict[str, Any]]:
-    """Fetch posts from a single subreddit. Returns upstream-shaped dicts."""
-    # Upstream `search` requires a query; pass the sub name itself as a broad
-    # in-sub query. Live behavior can be tuned later — tests mock this.
-    return reddit_public.search(query=sub, subreddit=sub, depth="default")[:limit]
+    """Fetch /r/<sub>/hot.json directly. Returns dicts in the shape `_to_item` expects.
+
+    Public endpoint — no OAuth required. Rate limit is ~10 req/min anonymous;
+    for a once-daily digest pulling a handful of subs this is fine.
+    """
+    capped = max(1, min(int(limit), 100))
+    url = f"https://www.reddit.com/r/{sub}/hot.json?limit={capped}"
+    req = urllib.request.Request(url, headers={"User-Agent": _user_agent()})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = json.loads(resp.read())
+    except (urllib.error.URLError, json.JSONDecodeError) as e:
+        log.warning("reddit hot fetch failed for r/%s: %s", sub, e)
+        return []
+
+    posts: list[dict[str, Any]] = []
+    for child in raw.get("data", {}).get("children", []):
+        p = child.get("data", {})
+        permalink = p.get("permalink") or ""
+        url = f"https://www.reddit.com{permalink}" if permalink else (p.get("url") or "")
+        posts.append({
+            "reddit_id": p.get("id"),
+            "title": p.get("title", ""),
+            "url": url,
+            "selftext": p.get("selftext", ""),
+            "created_utc": p.get("created_utc"),
+            "score": p.get("score", 0),
+            "num_comments": p.get("num_comments", 0),
+            "subreddit": p.get("subreddit", sub),
+            "author": p.get("author", ""),
+            "engagement": {
+                "score": p.get("score", 0),
+                "num_comments": p.get("num_comments", 0),
+                "upvote_ratio": p.get("upvote_ratio"),
+            },
+        })
+    return posts
 
 
 def _search_reddit(query: str, limit: int = 15) -> list[dict[str, Any]]:
-    """Search Reddit globally for a query. Returns upstream-shaped dicts."""
+    """Search Reddit globally for a query. Used for symbol-targeted watchlist queries."""
     return reddit_public.search(query=query, depth="default")[:limit]
 
 
