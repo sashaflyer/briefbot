@@ -2,10 +2,19 @@
 Vendor selected modules from mvanhorn/last30days-skill.
 
 Run: python scripts/vendor_last30days.py [<commit-sha>]
-If sha is omitted, defaults to 'main' (records actual resolved SHA in UPSTREAM.md).
+
+Resolution order for the ref:
+  1. Explicit argv[1], if given.
+  2. The `Commit:` line of an existing DEST/UPSTREAM.md (re-pin to last vendor).
+  3. Upstream `main` (resolved to the current SHA at fetch time).
+
+Each run is a clean re-vendor: DEST is removed and recreated before fetching,
+so stale files left over from a previous MODULES list cannot linger.
 """
 from __future__ import annotations
 
+import re
+import shutil
 import sys
 import urllib.error
 import urllib.request
@@ -42,6 +51,10 @@ EXTRA_MODULES = [
     ("skills/last30days/scripts/store.py", "store.py"),
 ]
 
+# Files (by local_name) that need the `from lib import X` -> `from . import X`
+# rewrite after fetch. Add one entry per file; no code changes required.
+PATCH_FROM_LIB_IMPORT = {"store.py"}
+
 
 def fetch(url: str) -> bytes:
     with urllib.request.urlopen(url) as r:
@@ -54,10 +67,50 @@ def resolve_sha(ref: str) -> str:
     return data["sha"]
 
 
+def _read_pinned_sha() -> str | None:
+    """Return the SHA recorded in DEST/UPSTREAM.md, or None if not present."""
+    upstream_md = DEST / "UPSTREAM.md"
+    if not upstream_md.exists():
+        return None
+    for line in upstream_md.read_text(encoding="utf-8").splitlines():
+        if line.startswith("Commit:"):
+            return line.split(":", 1)[1].strip()
+    return None
+
+
+def _patch_from_lib_import(path: Path) -> None:
+    """Rewrite `from lib import X` -> `from . import X` in `path`. Loud on no-op."""
+    text = path.read_text(encoding="utf-8")
+    patched, n = re.subn(r"^from lib\s+import\s+", "from . import ", text, flags=re.MULTILINE)
+    if n == 0:
+        raise RuntimeError(
+            f"Expected to rewrite at least one 'from lib import ...' in {path.name}, "
+            f"but found none. Upstream layout may have changed; re-pin and re-check."
+        )
+    path.write_text(patched, encoding="utf-8")
+    print(f"  patched {path.name}: rewrote {n} `from lib import ...` -> `from . import ...`")
+
+
 def main() -> None:
-    ref = sys.argv[1] if len(sys.argv) > 1 else "main"
+    # Resolve the ref BEFORE wiping DEST, so a previously-pinned SHA can be read.
+    if len(sys.argv) > 1:
+        ref = sys.argv[1]
+        print(f"Using explicit ref from argv: {ref}")
+    else:
+        pinned = _read_pinned_sha()
+        if pinned:
+            ref = pinned
+            print(f"Re-using previously pinned SHA from UPSTREAM.md: {ref}")
+        else:
+            ref = "main"
+            print("No previous pin found; using upstream 'main' (will resolve to a SHA).")
+
     sha = resolve_sha(ref)
     print(f"Vendoring {REPO}@{sha}")
+
+    # Clean re-vendor: wipe DEST so files removed from MODULES don't linger.
+    if DEST.exists():
+        shutil.rmtree(DEST)
     DEST.mkdir(parents=True, exist_ok=True)
 
     missing: list[str] = []
@@ -85,16 +138,13 @@ def main() -> None:
             else:
                 raise
 
-    # Surgical patch: store.py was at scripts/ in upstream and imports lib/
-    # submodules via sys.path manipulation. In our flat package layout, those
-    # are siblings, so rewrite `from lib import X` → `from . import X`.
-    store_py = DEST / "store.py"
-    if store_py.exists():
-        text = store_py.read_text(encoding="utf-8")
-        patched = text.replace("from lib import ", "from . import ")
-        if patched != text:
-            store_py.write_text(patched, encoding="utf-8")
-            print("  patched store.py: `from lib import ...` -> `from . import ...`")
+    # Surgical patch: rewrite `from lib import X` -> `from . import X` in
+    # files that need it (currently just store.py, which lived at scripts/
+    # upstream and imported lib/ submodules via sys.path manipulation).
+    for local_name in PATCH_FROM_LIB_IMPORT:
+        target = DEST / local_name
+        if target.exists():
+            _patch_from_lib_import(target)
 
     license_url = f"https://raw.githubusercontent.com/{REPO}/{sha}/LICENSE"
     (DEST / "LICENSE").write_bytes(fetch(license_url))
@@ -107,6 +157,7 @@ def main() -> None:
         f"Source: https://github.com/{REPO}\n"
         f"Commit: {sha}\n"
         f"Path: {BASE_PATH}/\n\n"
+        f"To reproduce this exact vendor: `python scripts/vendor_last30days.py {sha}`\n\n"
         f"## Vendored modules (from `{BASE_PATH}/`)\n\n"
         + "\n".join(f"- `{m}`" for m in MODULES)
         + "\n\n## Vendored modules (from other paths)\n\n"

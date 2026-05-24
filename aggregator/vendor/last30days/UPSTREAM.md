@@ -4,6 +4,8 @@ Source: https://github.com/mvanhorn/last30days-skill
 Commit: 1e03af19e0ad435ee6d227a3593b0c6e5d2ecbe8
 Path: skills/last30days/scripts/lib/
 
+To reproduce this exact vendor: `python scripts/vendor_last30days.py 1e03af19e0ad435ee6d227a3593b0c6e5d2ecbe8`
+
 ## Vendored modules (from `skills/last30days/scripts/lib/`)
 
 - `__init__.py`
