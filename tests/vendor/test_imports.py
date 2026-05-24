@@ -19,6 +19,7 @@ MODULES = [
     "aggregator.vendor.last30days.dates",
     "aggregator.vendor.last30days.env",
     "aggregator.vendor.last30days.log",
+    "aggregator.vendor.last30days.store",
 ]
 
 
