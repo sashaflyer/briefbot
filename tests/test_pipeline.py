@@ -221,3 +221,40 @@ async def test_run_digest_does_not_record_when_telegram_fails(cfg, storage):
     ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
         result = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
     assert result.items_delivered == 3
+
+
+@pytest.mark.asyncio
+async def test_run_digest_empty_after_filter_sends_heartbeat(cfg, storage):
+    """When all items get filtered out, we send a brief heartbeat instead of
+    calling the LLM with zero items."""
+    from unittest.mock import AsyncMock, patch
+    from aggregator import pipeline
+
+    items = [make_distinct_item("reddit", i) for i in range(3)]
+
+    # First run delivers all 3.
+    with patch.object(pipeline, "_fetch_all", new=AsyncMock(
+        return_value={"reddit": items, "polymarket": []}
+    )), patch.object(pipeline, "synthesize", return_value="D1"
+    ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
+        r1 = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
+    assert r1.items_delivered == 3
+
+    # Second run with same items: should hit the empty-result path.
+    same_items = [make_distinct_item("reddit", i) for i in range(3)]
+    with patch.object(pipeline, "_fetch_all", new=AsyncMock(
+        return_value={"reddit": same_items, "polymarket": []}
+    )), patch.object(pipeline, "synthesize", return_value="SHOULD NOT BE CALLED"
+    ) as fake_synth, patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[42])) as fake_send:
+        r2 = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
+
+    # Synth must NOT be called (saves a costly LLM round-trip).
+    fake_synth.assert_not_called()
+    # A heartbeat message must be sent.
+    fake_send.assert_awaited_once()
+    sent_text = fake_send.await_args.args[0]
+    assert "no new items" in sent_text.lower()
+    assert "crypto_general" in sent_text
+    # Run is marked ok with 0 delivered.
+    assert r2.status == "ok"
+    assert r2.items_delivered == 0

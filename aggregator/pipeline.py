@@ -144,6 +144,24 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
 
     ranked = _score_and_dedup(items, top_n=top_n, per_author_cap=cfg.scoring.per_author_cap)
 
+    # Empty-result fallback: nothing new survived fetch/filter/dedup.
+    # Send a short heartbeat so the user knows the bot is alive but quiet.
+    if not ranked:
+        log.info("no new items to deliver for %s; sending heartbeat", topic_id)
+        message_text = (
+            f"news-aggregator: no new items for {topic_id} "
+            f"in the last {cfg.scoring.dedup_window_days} days "
+            f"(fetched {fetched}, all previously delivered or filtered)"
+        )
+        msg_ids = await send_digest(message_text, topic_id=topic_id, cfg=cfg)
+        storage.log_digest(run_id=run_id, topic_id=topic_id, message_text=message_text,
+                           telegram_message_ids=msg_ids,
+                           at=datetime.now(timezone.utc))
+        status = "partial" if fail_count > 0 else "ok"
+        storage.finish_run(run_id, status=status, items_fetched=fetched,
+                           items_delivered=0, at=datetime.now(timezone.utc))
+        return RunResult(run_id, status, fetched, 0)
+
     try:
         message_text = synthesize(topic_id, [i.to_dict() for i in ranked], cfg=cfg)
     except Exception as e:
