@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from telegram.ext import Application, CommandHandler
 
+from aggregator.bot.commands.digest import handle_digest
 from aggregator.bot.commands.help import handle_help
 from aggregator.bot.commands.status import handle_status
 from aggregator.bot.commands.topics import handle_topics
@@ -17,6 +18,7 @@ from aggregator.config import Config
 # /help renders this list. setMyCommands (Task 8) reads from it.
 COMMANDS = [
     ("status", "Bot uptime, last runs, source health",      handle_status),
+    ("digest", "Run a digest now: /digest <topic_id>",      handle_digest),
     ("topics", "List configured topics, schedule, sources", handle_topics),
     ("help",   "List available commands",                   handle_help),
 ]
