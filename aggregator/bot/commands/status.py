@@ -39,7 +39,8 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     uptime = (datetime.now(timezone.utc) - started_at).total_seconds()
     lines = ["*news-aggregator status*", "", f"Uptime: {_fmt_uptime(uptime)}", ""]
 
-    for topic in ("crypto_general", "crypto_watchlist"):
+    for topic_row in storage.list_topics():
+        topic = topic_row["name"]
         last = storage.last_run(topic)
         if last:
             lines.append(

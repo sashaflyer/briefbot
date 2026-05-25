@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from aggregator.bot.commands.status import handle_status
+from aggregator.config import TopicConfig
 from aggregator.storage import Storage
 
 
@@ -11,11 +12,18 @@ from aggregator.storage import Storage
 def storage(tmp_path):
     s = Storage(str(tmp_path / "test.db"))
     s.init_schema()
-    s.seed_topics(
-        general_subreddits=["X"], general_polymarket_tags=["crypto"],
-        general_schedule="0 8 * * *",
-        watchlist_symbols=["SOL"], watchlist_schedule="0 8 * * *",
-    )
+    s.seed_topics({
+        "crypto_general": TopicConfig(
+            kind="general", sources=["reddit"], subreddits=["X"],
+            polymarket_tags=["crypto"], prompt_template="general_crypto.md",
+            top_n=10, schedule="0 8 * * *",
+        ),
+        "crypto_watchlist": TopicConfig(
+            kind="watchlist", sources=["reddit"], symbols=["SOL"],
+            prompt_template="watchlist.md", per_symbol_top_n=5,
+            schedule="0 8 * * *",
+        ),
+    })
     now = datetime.now(timezone.utc)
     rid = s.start_run("crypto_general", trigger="scheduled", at=now)
     s.finish_run(rid, status="ok", items_fetched=10, items_delivered=5, at=now)

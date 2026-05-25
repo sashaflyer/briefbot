@@ -58,7 +58,7 @@ def test_synthesize_watchlist_includes_symbols(cfg, items):
         out = synth.synthesize("crypto_watchlist", items, cfg=cfg)
 
     prompt = fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
-    for sym in cfg.crypto_watchlist.symbols:
+    for sym in cfg.topics["crypto_watchlist"].symbols:
         assert sym in prompt
     assert "SOL" in out
 

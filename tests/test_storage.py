@@ -1,8 +1,10 @@
+import json
 import sqlite3
 from datetime import datetime, timezone
 
 import pytest
 
+from aggregator.config import TopicConfig
 from aggregator.storage import Storage
 
 
@@ -12,6 +14,28 @@ def storage(tmp_path):
     s = Storage(str(db))
     s.init_schema()
     return s
+
+
+def _sample_topics() -> dict[str, TopicConfig]:
+    return {
+        "crypto_general": TopicConfig(
+            kind="general",
+            sources=["reddit", "polymarket"],
+            subreddits=["CryptoCurrency"],
+            polymarket_tags=["crypto"],
+            prompt_template="general_crypto.md",
+            top_n=10,
+            schedule="0 8 * * *",
+        ),
+        "crypto_watchlist": TopicConfig(
+            kind="watchlist",
+            sources=["reddit"],
+            symbols=["SOL", "SUI"],
+            prompt_template="watchlist.md",
+            per_symbol_top_n=5,
+            schedule="0 8 * * *",
+        ),
+    }
 
 
 def test_added_tables_exist(storage):
@@ -24,23 +48,26 @@ def test_added_tables_exist(storage):
 
 
 def test_seed_topics_idempotent(storage):
-    storage.seed_topics(
-        general_subreddits=["CryptoCurrency"],
-        general_polymarket_tags=["crypto"],
-        general_schedule="0 8 * * *",
-        watchlist_symbols=["SOL", "SUI"],
-        watchlist_schedule="0 8 * * *",
-    )
-    storage.seed_topics(  # second call must not duplicate
-        general_subreddits=["CryptoCurrency"],
-        general_polymarket_tags=["crypto"],
-        general_schedule="0 8 * * *",
-        watchlist_symbols=["SOL", "SUI"],
-        watchlist_schedule="0 8 * * *",
-    )
-    topics = storage.list_topics()
-    names = sorted(t["name"] for t in topics)
+    topics = _sample_topics()
+    storage.seed_topics(topics)
+    storage.seed_topics(topics)  # second call must not duplicate
+    rows = storage.list_topics()
+    names = sorted(t["name"] for t in rows)
     assert names == ["crypto_general", "crypto_watchlist"]
+
+
+def test_seed_topics_persists_query_payload(storage):
+    storage.seed_topics(_sample_topics())
+    rows = {r["name"]: r for r in storage.list_topics()}
+    g = json.loads(rows["crypto_general"]["search_queries"])
+    assert g["kind"] == "general"
+    assert g["sources"] == ["reddit", "polymarket"]
+    assert g["subreddits"] == ["CryptoCurrency"]
+    assert g["polymarket_tags"] == ["crypto"]
+    assert g["prompt_template"] == "general_crypto.md"
+    w = json.loads(rows["crypto_watchlist"]["search_queries"])
+    assert w["kind"] == "watchlist"
+    assert w["symbols"] == ["SOL", "SUI"]
 
 
 def test_record_source_health_failure_then_success(storage):

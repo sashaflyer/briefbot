@@ -46,10 +46,19 @@ def _shorten_body(item_dict: dict[str, Any], query: str) -> dict[str, Any]:
 
 
 def _query_for_topic(topic_id: str, cfg: Config) -> str:
-    """Single string used by the snippet extractor to score window relevance."""
-    if topic_id == "crypto_watchlist":
-        return " ".join(cfg.crypto_watchlist.symbols)
-    return "crypto"
+    """Single string used by the snippet extractor to score window relevance.
+
+    For watchlist topics, use the symbol list. For general topics, prefer
+    hn_keywords -> polymarket_tags -> a generic fallback.
+    """
+    topic = cfg.topics[topic_id]
+    if topic.kind == "watchlist":
+        return " ".join(topic.symbols)
+    if topic.hn_keywords:
+        return " ".join(topic.hn_keywords)
+    if topic.polymarket_tags:
+        return " ".join(topic.polymarket_tags)
+    return topic_id
 
 
 def _get_client() -> OpenAI:
@@ -63,17 +72,15 @@ def _get_client() -> OpenAI:
 
 
 def _build_prompt(topic_id: str, items: list[dict[str, Any]], cfg: Config) -> str:
+    topic = cfg.topics[topic_id]
     items_json = json.dumps(items, ensure_ascii=False, indent=2)
-    if topic_id == "crypto_general":
-        template = load_prompt("general_crypto.md")
-        return template.format(n_items=len(items), items_json=items_json)
-    if topic_id == "crypto_watchlist":
-        template = load_prompt("watchlist.md")
+    template = load_prompt(topic.prompt_template)
+    if topic.kind == "watchlist":
         return template.format(
-            symbols=", ".join(cfg.crypto_watchlist.symbols),
+            symbols=", ".join(topic.symbols),
             items_json=items_json,
         )
-    raise ValueError(f"unknown topic_id: {topic_id!r}")
+    return template.format(n_items=len(items), items_json=items_json)
 
 
 def synthesize(topic_id: str, items: list[dict[str, Any]], *, cfg: Config) -> str:

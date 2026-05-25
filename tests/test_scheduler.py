@@ -10,11 +10,7 @@ def test_build_scheduler_registers_one_job_per_topic(tmp_path):
     cfg = load_config("config.example.toml")
     s = Storage(str(tmp_path / "test.db"))
     s.init_schema()
-    s.seed_topics(
-        general_subreddits=["CryptoCurrency"], general_polymarket_tags=["crypto"],
-        general_schedule="0 8 * * *",
-        watchlist_symbols=["SOL"], watchlist_schedule="30 8 * * *",
-    )
+    s.seed_topics(cfg.topics)
 
     with patch.object(sched_mod, "AsyncIOScheduler") as FakeSched:
         instance = MagicMock()

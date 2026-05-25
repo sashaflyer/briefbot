@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -44,14 +43,17 @@ class RunResult:
     items_delivered: int
 
 
-async def _fetch_all(queries: dict[str, Any]) -> dict[str, list[Item] | Exception]:
+async def _fetch_all(
+    queries: dict[str, Any], allowed_sources: list[str]
+) -> dict[str, list[Item] | Exception]:
     async def safe(name: str, src: Source):
         try:
             return name, await src.fetch(queries)
         except Exception as e:
             log.exception("source %s failed", name)
             return name, e
-    pairs = await asyncio.gather(*(safe(n, s) for n, s in SOURCES.items()))
+    selected = [(n, SOURCES[n]) for n in allowed_sources if n in SOURCES]
+    pairs = await asyncio.gather(*(safe(n, s) for n, s in selected))
     return dict(pairs)
 
 
@@ -183,16 +185,21 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
     run_id = storage.start_run(topic_id, trigger=trigger, at=now)
     log.info("run %s started for topic %s (trigger=%s)", run_id, topic_id, trigger)
 
-    topic = next((t for t in storage.list_topics() if t["name"] == topic_id), None)
+    topic = cfg.topics.get(topic_id)
     if topic is None:
-        msg = f"topic {topic_id!r} not found in DB"
+        msg = f"topic {topic_id!r} not found in config"
         storage.finish_run(run_id, status="error", items_fetched=0, items_delivered=0,
                            error_message=msg, at=datetime.now(timezone.utc))
         return RunResult(run_id, "error", 0, 0)
 
-    queries = json.loads(topic["search_queries"])
+    queries: dict[str, Any] = {
+        "subreddits": topic.subreddits,
+        "polymarket_tags": topic.polymarket_tags,
+        "hn_keywords": topic.hn_keywords,
+        "symbols": topic.symbols,
+    }
 
-    per_source = await _fetch_all(queries)
+    per_source = await _fetch_all(queries, topic.sources)
     items: list[Item] = []
     ok_count = 0
     fail_count = 0
@@ -222,8 +229,10 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
         log.info("filtered %d previously-delivered items; %d remain",
                  before - len(items), len(items))
 
-    top_n = (cfg.crypto_general.top_n if topic_id == "crypto_general"
-             else cfg.crypto_watchlist.per_symbol_top_n * len(cfg.crypto_watchlist.symbols))
+    if topic.kind == "general":
+        top_n = topic.top_n  # type: ignore[assignment]
+    else:
+        top_n = topic.per_symbol_top_n * len(topic.symbols)  # type: ignore[operator]
 
     ranked = _score_and_dedup(items, top_n=top_n, per_author_cap=cfg.scoring.per_author_cap)
 

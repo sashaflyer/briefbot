@@ -29,16 +29,10 @@ def cfg(tmp_path):
 
 
 @pytest.fixture
-def storage(tmp_path):
+def storage(tmp_path, cfg):
     s = Storage(str(tmp_path / "test.db"))
     s.init_schema()
-    s.seed_topics(
-        general_subreddits=["CryptoCurrency"],
-        general_polymarket_tags=["crypto"],
-        general_schedule="0 8 * * *",
-        watchlist_symbols=["SOL", "SUI", "AVAX"],
-        watchlist_schedule="0 8 * * *",
-    )
+    s.seed_topics(cfg.topics)
     return s
 
 
@@ -52,7 +46,7 @@ async def test_run_digest_happy_path(cfg, storage):
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
         return_value={"reddit": reddit_items, "polymarket": poly_items}
     )), patch.object(pipeline, "_score_and_dedup",
-                     side_effect=lambda items, **kw: items[: cfg.crypto_general.top_n]
+                     side_effect=lambda items, **kw: items[: cfg.topics["crypto_general"].top_n]
     ), patch.object(pipeline, "synthesize", return_value="DIGEST TEXT"
     ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[101])):
         result = await pipeline.run_digest("crypto_general", cfg, storage,

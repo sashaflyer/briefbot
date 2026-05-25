@@ -1,19 +1,6 @@
 [schedule]
 timezone = "Europe/Warsaw"
 
-[crypto.general]
-subreddits = ["CryptoCurrency", "CryptoMarkets", "ethfinance"]
-polymarket_tags = ["crypto"]
-# Optional: explicit HN search keywords. Defaults to polymarket_tags above.
-# hn_keywords = ["crypto", "bitcoin", "ethereum"]
-top_n = 15
-schedule = "0 8 * * *"
-
-[crypto.watchlist]
-symbols = ["SOL", "SUI", "AVAX"]
-per_symbol_top_n = 5
-schedule = "0 8 * * *"
-
 [scoring]
 dedup_window_days = 7
 min_score = 0.0
@@ -29,3 +16,21 @@ parse_mode = "HTML"
 
 [storage]
 data_dir = "./data"
+
+[topics.crypto_general]
+kind = "general"
+sources = ["reddit", "polymarket", "hackernews"]
+subreddits = ["CryptoCurrency", "CryptoMarkets", "ethfinance"]
+polymarket_tags = ["crypto"]
+hn_keywords = ["bitcoin", "ethereum", "stablecoin", "defi"]
+prompt_template = "general_crypto.md"
+top_n = 15
+schedule = "0 8 * * *"
+
+[topics.crypto_watchlist]
+kind = "watchlist"
+sources = ["reddit", "polymarket", "hackernews"]
+symbols = ["SOL", "SUI", "AVAX"]
+prompt_template = "watchlist.md"
+per_symbol_top_n = 5
+schedule = "0 8 * * *"

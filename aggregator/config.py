@@ -6,9 +6,13 @@ import tomllib
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _CRON_RE = re.compile(r"^\S+\s+\S+\s+\S+\s+\S+\s+\S+$")
+
+# The set of source registry keys understood by the pipeline. Kept in sync
+# with aggregator.pipeline.SOURCES — adding a source means updating both.
+_KNOWN_SOURCES = {"reddit", "polymarket", "hackernews"}
 
 
 def _validate_cron(v: str) -> str:
@@ -21,27 +25,50 @@ class ScheduleConfig(BaseModel):
     timezone: str
 
 
-class GeneralConfig(BaseModel):
-    subreddits: list[str] = Field(min_length=1)
-    polymarket_tags: list[str]
-    top_n: int = Field(ge=1, le=200)
+class TopicConfig(BaseModel):
+    """Data-driven topic definition. One entry per [topics.<id>] table.
+
+    `kind` switches the digest shape:
+    - "general"   -> rank globally, keep top_n.
+    - "watchlist" -> per_symbol_top_n * len(symbols) cap, requires symbols.
+    """
+    kind: Literal["general", "watchlist"]
+    sources: list[str] = Field(min_length=1)
+    prompt_template: str
     schedule: str
+    top_n: int | None = Field(default=None, ge=1, le=200)
+    per_symbol_top_n: int | None = Field(default=None, ge=1, le=50)
+    # Per-source query inputs (all optional; each source picks what it understands).
+    subreddits: list[str] = Field(default_factory=list)
+    polymarket_tags: list[str] = Field(default_factory=list)
+    hn_keywords: list[str] = Field(default_factory=list)
+    symbols: list[str] = Field(default_factory=list)
 
     @field_validator("schedule")
     @classmethod
     def _v_schedule(cls, v: str) -> str:
         return _validate_cron(v)
 
-
-class WatchlistConfig(BaseModel):
-    symbols: list[str] = Field(min_length=1)
-    per_symbol_top_n: int = Field(ge=1, le=50)
-    schedule: str
-
-    @field_validator("schedule")
+    @field_validator("sources")
     @classmethod
-    def _v_schedule(cls, v: str) -> str:
-        return _validate_cron(v)
+    def _v_sources(cls, v: list[str]) -> list[str]:
+        unknown = [s for s in v if s not in _KNOWN_SOURCES]
+        if unknown:
+            raise ValueError(
+                f"unknown source(s) {unknown!r}; known: {sorted(_KNOWN_SOURCES)}"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _v_kind_requirements(self) -> "TopicConfig":
+        if self.kind == "general" and self.top_n is None:
+            raise ValueError("kind='general' requires top_n")
+        if self.kind == "watchlist":
+            if self.per_symbol_top_n is None:
+                raise ValueError("kind='watchlist' requires per_symbol_top_n")
+            if not self.symbols:
+                raise ValueError("kind='watchlist' requires non-empty symbols")
+        return self
 
 
 class ScoringConfig(BaseModel):
@@ -66,22 +93,22 @@ class StorageConfig(BaseModel):
 
 class Config(BaseModel):
     schedule: ScheduleConfig
-    crypto_general: GeneralConfig
-    crypto_watchlist: WatchlistConfig
     scoring: ScoringConfig
     synth: SynthConfig
     telegram: TelegramConfig
     storage: StorageConfig
+    topics: dict[str, TopicConfig] = Field(min_length=1)
 
 
 def load_config(path: str | Path) -> Config:
     raw = tomllib.loads(Path(path).read_text(encoding="utf-8"))
+    topics_raw = raw.get("topics") or {}
+    topics = {tid: TopicConfig(**body) for tid, body in topics_raw.items()}
     return Config(
         schedule=ScheduleConfig(**raw["schedule"]),
-        crypto_general=GeneralConfig(**raw["crypto"]["general"]),
-        crypto_watchlist=WatchlistConfig(**raw["crypto"]["watchlist"]),
         scoring=ScoringConfig(**raw["scoring"]),
         synth=SynthConfig(**raw["synth"]),
         telegram=TelegramConfig(**raw["telegram"]),
         storage=StorageConfig(**raw["storage"]),
+        topics=topics,
     )

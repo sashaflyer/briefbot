@@ -36,6 +36,8 @@ Two files:
 - `config.toml` — non-secret preferences (subreddits, watchlist symbols, schedule). Gitignored. See `config.example.toml`.
 - `.env` — secrets (OpenAI key, Telegram token + chat ID, Reddit OAuth). Gitignored. See `.env.example`.
 
+Topics are data-driven: each `[topics.<id>]` table defines one digest (its `kind`, `sources`, query inputs, prompt template, and cron schedule). Adding a new topic is a config-only change — no code edits.
+
 ## Adding a new bot command
 
 1. Create `aggregator/bot/commands/<name>.py` with `async def handle_<name>(update, context)`.

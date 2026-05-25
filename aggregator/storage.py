@@ -11,9 +11,12 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from aggregator.vendor.last30days import store as upstream_store
+
+if TYPE_CHECKING:
+    from aggregator.config import TopicConfig
 
 
 _ADDED_SCHEMA = """
@@ -91,23 +94,34 @@ class Storage:
 
     # --- Topics ---
 
-    def seed_topics(
-        self,
-        *,
-        general_subreddits: List[str],
-        general_polymarket_tags: List[str],
-        general_schedule: str,
-        watchlist_symbols: List[str],
-        watchlist_schedule: str,
-    ) -> None:
-        """Idempotently seed crypto_general and crypto_watchlist topics."""
-        general_queries = json.dumps({
-            "subreddits": general_subreddits,
-            "polymarket_tags": general_polymarket_tags,
-        })
-        watchlist_queries = json.dumps({"symbols": watchlist_symbols})
-        self._upsert_topic("crypto_general", general_queries, general_schedule)
-        self._upsert_topic("crypto_watchlist", watchlist_queries, watchlist_schedule)
+    def seed_topics(self, topics: Dict[str, "TopicConfig"]) -> None:
+        """Idempotently seed each topic in `topics` (dict keyed by topic id).
+
+        For each TopicConfig, the full set of per-source query inputs plus
+        `kind`, `sources`, and `prompt_template` is serialized into
+        `topics.search_queries` as a JSON object with the shape:
+
+            {
+                "kind": "general" | "watchlist",
+                "sources": ["reddit", ...],
+                "prompt_template": "general_crypto.md",
+                "subreddits": [...], "polymarket_tags": [...],
+                "hn_keywords": [...], "symbols": [...]
+            }
+
+        Consumers (pipeline, synth) decode this back from the row when needed.
+        """
+        for topic_id, topic in topics.items():
+            search_queries = json.dumps({
+                "kind": topic.kind,
+                "sources": list(topic.sources),
+                "prompt_template": topic.prompt_template,
+                "subreddits": list(topic.subreddits),
+                "polymarket_tags": list(topic.polymarket_tags),
+                "hn_keywords": list(topic.hn_keywords),
+                "symbols": list(topic.symbols),
+            })
+            self._upsert_topic(topic_id, search_queries, topic.schedule)
 
     def _upsert_topic(self, name: str, search_queries: str, schedule: str) -> None:
         conn = self._connect()

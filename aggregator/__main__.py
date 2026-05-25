@@ -47,13 +47,7 @@ def _bootstrap(config_path: str) -> tuple:
     data_dir = _resolve_data_dir(cfg.storage.data_dir)
     storage = Storage(data_dir / "aggregator.db")
     storage.init_schema()
-    storage.seed_topics(
-        general_subreddits=cfg.crypto_general.subreddits,
-        general_polymarket_tags=cfg.crypto_general.polymarket_tags,
-        general_schedule=cfg.crypto_general.schedule,
-        watchlist_symbols=cfg.crypto_watchlist.symbols,
-        watchlist_schedule=cfg.crypto_watchlist.schedule,
-    )
+    storage.seed_topics(cfg.topics)
     return cfg, storage
 
 
@@ -96,16 +90,24 @@ async def serve(*, config_path: str) -> None:
 
 
 def main() -> None:
+    # NOTE: --topic choices aren't restricted in argparse because the topic set
+    # is loaded from config at runtime. We validate post-load and exit 2 with
+    # a clear message if the topic is unknown (mimicking argparse's behavior).
     parser = argparse.ArgumentParser(prog="news-aggregator")
     parser.add_argument("--config", default="config.toml")
     sub = parser.add_subparsers(dest="cmd")
 
     run_p = sub.add_parser("run", help="run pipeline once for a topic and exit")
     run_p.add_argument("--topic", required=True,
-                       choices=["crypto_general", "crypto_watchlist"])
+                       help="topic id from [topics.<id>] in config")
 
     args = parser.parse_args()
     if args.cmd == "run":
+        cfg = load_config(args.config)
+        if args.topic not in cfg.topics:
+            known = sorted(cfg.topics.keys())
+            parser.exit(2, f"error: unknown topic {args.topic!r}; "
+                           f"known topics: {known}\n")
         asyncio.run(cli_run_once(topic_id=args.topic, config_path=args.config))
     else:
         asyncio.run(serve(config_path=args.config))
