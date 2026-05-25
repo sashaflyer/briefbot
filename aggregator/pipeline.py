@@ -16,7 +16,15 @@ from aggregator.storage import Storage
 from aggregator.synth import synthesize
 from aggregator.delivery.telegram import send_digest
 from aggregator.vendor.last30days import dedupe as _dedupe
+from aggregator.vendor.last30days import reddit_enrich as _reddit_enrich
 from aggregator.vendor.last30days import schema as _schema
+
+# Cap on how many Reddit items get enriched per run (extra HTTP call each).
+# Higher = better digest quality, more risk of hitting Reddit's anonymous rate limit.
+_REDDIT_ENRICH_CAP = 10
+# Comment trimming applied after upstream enrichment fills the field.
+_REDDIT_TOP_COMMENTS_PER_ITEM = 3
+_REDDIT_COMMENT_EXCERPT_CHARS = 150
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +74,55 @@ def _engagement_score(item: Item) -> float:
         + 0.1 * item.engagement_raw.get("comments", 0)
         + 0.001 * (item.engagement_raw.get("volume") or 0)
     )
+
+
+async def _enrich_reddit_items(items: list[Item]) -> list[Item]:
+    """For the top Reddit items, fetch top comments + insights and stash them
+    on Item.metadata so the LLM can use them.
+
+    Non-Reddit items pass through untouched. Failures (network, rate limit,
+    parse) are logged but don't stop the run. Enrichment is capped to
+    _REDDIT_ENRICH_CAP items to keep the per-run HTTP budget bounded.
+    """
+    enriched_count = 0
+    for item in items:
+        if item.source != "reddit":
+            continue
+        if enriched_count >= _REDDIT_ENRICH_CAP:
+            break
+        if not item.url:
+            continue
+        try:
+            result = await asyncio.to_thread(
+                _reddit_enrich.enrich_reddit_item, {"url": item.url}
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("reddit enrich failed for %s: %s", item.url, e)
+            # Treat as "stop, the next call would probably fail too" only if
+            # the exception name suggests rate limiting.
+            if "RateLimit" in type(e).__name__:
+                log.warning("reddit rate-limited; aborting enrichment for remaining items")
+                break
+            continue
+
+        raw_comments = (result.get("top_comments") or [])[:_REDDIT_TOP_COMMENTS_PER_ITEM]
+        trimmed = [
+            {
+                "score": c.get("score"),
+                "author": c.get("author"),
+                "excerpt": (c.get("excerpt") or "")[:_REDDIT_COMMENT_EXCERPT_CHARS],
+            }
+            for c in raw_comments
+        ]
+        insights = (result.get("comment_insights") or [])[:5]
+
+        item.metadata["top_comments"] = trimmed
+        item.metadata["comment_insights"] = insights
+        enriched_count += 1
+
+    if enriched_count:
+        log.info("enriched %d reddit items with top comments", enriched_count)
+    return items
 
 
 def _score_and_dedup(items: list[Item], *, top_n: int, per_author_cap: int) -> list[Item]:
@@ -143,6 +200,9 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
              else cfg.crypto_watchlist.per_symbol_top_n * len(cfg.crypto_watchlist.symbols))
 
     ranked = _score_and_dedup(items, top_n=top_n, per_author_cap=cfg.scoring.per_author_cap)
+
+    # Enrich top Reddit items with comments so the LLM has the actual context.
+    ranked = await _enrich_reddit_items(ranked)
 
     # Empty-result fallback: nothing new survived fetch/filter/dedup.
     # Send a short heartbeat so the user knows the bot is alive but quiet.

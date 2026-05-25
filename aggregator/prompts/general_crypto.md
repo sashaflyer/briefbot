@@ -28,6 +28,10 @@ Rules:
 - Do NOT include items you judge low-signal even if they rank high.
 - Keep total length under 1000 characters.
 - Use plain ASCII hyphens, never em-dashes.
+- When an item's metadata includes `top_comments` or `comment_insights`, use
+  them as additional context for what the post is actually about and how the
+  community received it. Prefer phrasing that reflects community sentiment
+  over the headline alone.
 
 ITEMS (JSON):
 ```

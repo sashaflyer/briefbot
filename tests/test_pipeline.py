@@ -258,3 +258,104 @@ async def test_run_digest_empty_after_filter_sends_heartbeat(cfg, storage):
     # Run is marked ok with 0 delivered.
     assert r2.status == "ok"
     assert r2.items_delivered == 0
+
+
+@pytest.mark.asyncio
+async def test_enrich_reddit_items_adds_comments_to_metadata():
+    """Verify Reddit items get top_comments+comment_insights in metadata."""
+    from unittest.mock import patch
+    from aggregator import pipeline
+
+    fake_enriched = {
+        "url": "https://reddit.com/r/x/comments/abc/title/",
+        "top_comments": [
+            {"score": 500, "author": "alice", "excerpt": "actually this is misleading because..."},
+            {"score": 200, "author": "bob", "excerpt": "agreed, source links here"},
+            {"score": 50, "author": "cara", "excerpt": "fourth comment, should be dropped due to limit"},
+            {"score": 10, "author": "dan", "excerpt": "fifth"},
+        ],
+        "comment_insights": ["sentiment: skeptical", "consensus: pump-and-dump"],
+    }
+    items = [
+        make_distinct_item("reddit", 0),
+        make_distinct_item("reddit", 1),
+        make_distinct_item("polymarket", 2),  # should NOT be enriched
+    ]
+    with patch.object(pipeline._reddit_enrich, "enrich_reddit_item",
+                      return_value=fake_enriched):
+        out = await pipeline._enrich_reddit_items(items)
+
+    # Reddit items: metadata populated, limited to top 3 comments.
+    assert "top_comments" in out[0].metadata
+    assert len(out[0].metadata["top_comments"]) == 3  # capped
+    assert out[0].metadata["top_comments"][0]["author"] == "alice"
+    assert "comment_insights" in out[0].metadata
+    assert out[1].metadata.get("top_comments")
+    # Polymarket item: untouched.
+    assert "top_comments" not in out[2].metadata
+
+
+@pytest.mark.asyncio
+async def test_enrich_reddit_items_continues_on_failure():
+    """A single enrichment failure shouldn't take down the run."""
+    from unittest.mock import patch
+    from aggregator import pipeline
+
+    calls = []
+    def flaky(item):
+        calls.append(item["url"])
+        if "reddit/0" in item["url"]:
+            raise RuntimeError("network blip")
+        return {"url": item["url"],
+                "top_comments": [{"score": 1, "author": "x", "excerpt": "hi"}],
+                "comment_insights": []}
+
+    items = [make_distinct_item("reddit", 0), make_distinct_item("reddit", 1)]
+    with patch.object(pipeline._reddit_enrich, "enrich_reddit_item", side_effect=flaky):
+        out = await pipeline._enrich_reddit_items(items)
+
+    # Both items were attempted; only the second got enriched.
+    assert len(calls) == 2
+    assert "top_comments" not in out[0].metadata
+    assert out[1].metadata.get("top_comments")
+
+
+@pytest.mark.asyncio
+async def test_enrich_reddit_items_aborts_on_rate_limit():
+    """If upstream raises a *RateLimit* error, stop enriching the rest."""
+    from unittest.mock import patch
+    from aggregator import pipeline
+
+    class RedditRateLimitError(Exception): pass
+
+    calls = []
+    def fake(item):
+        calls.append(item["url"])
+        raise RedditRateLimitError("429")
+
+    items = [make_distinct_item("reddit", i) for i in range(5)]
+    with patch.object(pipeline._reddit_enrich, "enrich_reddit_item", side_effect=fake):
+        await pipeline._enrich_reddit_items(items)
+
+    # Should bail after the first rate-limit signal.
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_enrich_reddit_items_respects_cap():
+    """No more than _REDDIT_ENRICH_CAP items get enriched per run."""
+    from unittest.mock import patch
+    from aggregator import pipeline
+
+    fake = {"url": "x", "top_comments": [], "comment_insights": []}
+    items = [make_distinct_item("reddit", i) for i in range(pipeline._REDDIT_ENRICH_CAP + 5)]
+    call_count = 0
+    def counter(item):
+        nonlocal call_count
+        call_count += 1
+        return fake
+
+    with patch.object(pipeline._reddit_enrich, "enrich_reddit_item", side_effect=counter):
+        await pipeline._enrich_reddit_items(items)
+
+    assert call_count == pipeline._REDDIT_ENRICH_CAP

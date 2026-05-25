@@ -30,6 +30,9 @@ Rules:
 - Do NOT invent facts; every claim must trace to an item below.
 - Keep total length under 1200 characters.
 - Use plain ASCII hyphens, never em-dashes.
+- When an item's metadata includes `top_comments` or `comment_insights`, use
+  them as additional context. Prefer phrasing that reflects community
+  sentiment over the headline alone.
 
 ITEMS (JSON):
 ```
