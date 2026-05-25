@@ -14,8 +14,10 @@ log = logging.getLogger(__name__)
 
 
 async def _job(topic_id: str, cfg: Config, storage: Storage) -> None:
+    from aggregator.bot.digest_lock import lock_for
     try:
-        result = await run_digest(topic_id, cfg, storage, trigger="scheduled")
+        async with lock_for(topic_id):
+            result = await run_digest(topic_id, cfg, storage, trigger="scheduled")
         log.info("scheduled run %s for %s: status=%s",
                  result.run_id, topic_id, result.status)
     except Exception:
