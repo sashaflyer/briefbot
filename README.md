@@ -209,7 +209,6 @@ aggregator/
 │   └── commands/status.py   # /status handler
 └── vendor/last30days/       # vendored upstream (MIT)
 deploy/                      # systemd unit + install guide
-docs/superpowers/            # design spec + implementation plan
 tests/                       # 77 offline tests
 ```
 
