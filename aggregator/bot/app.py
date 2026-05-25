@@ -39,3 +39,22 @@ def build_application(*, storage, scheduler=None, cfg: Config) -> Application:
         app.add_handler(CommandHandler(name, handler))
 
     return app
+
+
+async def publish_commands(bot) -> None:
+    """Tell Telegram about our command set so the `/` menu shows autocomplete.
+
+    Best-effort: a failure here (network, bad token, Telegram outage) is
+    logged but does not block startup — the bot still polls and handles
+    commands; only the client-side menu is missing.
+    """
+    import logging
+    from telegram import BotCommand
+
+    log = logging.getLogger(__name__)
+    cmds = [BotCommand(name, description) for name, description, _ in COMMANDS]
+    try:
+        await bot.set_my_commands(cmds)
+        log.info("published %d commands to Telegram", len(cmds))
+    except Exception:
+        log.exception("set_my_commands failed; continuing without menu")

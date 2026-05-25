@@ -14,7 +14,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from aggregator.bot.app import build_application
+from aggregator.bot.app import build_application, publish_commands
 from aggregator.config import load_config
 from aggregator.pipeline import run_digest
 from aggregator.scheduler import build_scheduler
@@ -76,6 +76,7 @@ async def serve(*, config_path: str) -> None:
 
     log.info("starting bot + scheduler")
     await app.initialize()
+    await publish_commands(app.bot)
     await app.start()
     await app.updater.start_polling()
     scheduler.start()
