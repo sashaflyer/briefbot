@@ -1,3 +1,4 @@
+from html import escape as _html_escape
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -38,6 +39,8 @@ async def test_help_lists_every_registered_command():
     from aggregator.bot.app import COMMANDS
     for name, description, _handler in COMMANDS:
         assert f"/{name}" in text
-        assert description in text
+        # handle_help applies HTML escaping; the test must too, otherwise a
+        # description containing & or < would silently slip through.
+        assert _html_escape(description) in text
     # Reply must use HTML parse mode (consistent with /status).
     assert upd.message.reply_text.await_args.kwargs.get("parse_mode") == "HTML"
