@@ -40,8 +40,10 @@ def test_synthesize_general_crypto_calls_openai(cfg, items):
     call_kwargs = fake_client.chat.completions.create.call_args.kwargs
     assert call_kwargs["model"] == cfg.synth.model
     assert call_kwargs["max_completion_tokens"] == cfg.synth.max_output_tokens
-    prompt = call_kwargs["messages"][0]["content"]
-    assert "SOL up 20%" in prompt
+    msgs = call_kwargs["messages"]
+    assert msgs[0]["role"] == "system" and msgs[1]["role"] == "user"
+    # Items JSON lives in the user message; rules/role live in the system message.
+    assert "SOL up 20%" in msgs[1]["content"]
 
 
 def test_synthesize_watchlist_includes_symbols(cfg, items):
@@ -57,13 +59,16 @@ def test_synthesize_watchlist_includes_symbols(cfg, items):
     with patch.object(synth, "_get_client", return_value=fake_client):
         out = synth.synthesize("crypto_watchlist", items, cfg=cfg)
 
-    prompt = fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    msgs = fake_client.chat.completions.create.call_args.kwargs["messages"]
+    user_msg = msgs[1]["content"]
+    # SYMBOLS header lives in the user message for watchlist topics.
+    assert user_msg.startswith("SYMBOLS: ")
     for sym in cfg.topics["crypto_watchlist"].canonical_symbols:
-        assert sym in prompt
+        assert sym in user_msg
     # Aliases must also reach the prompt so the LLM groups them under the ticker.
     for entry in cfg.topics["crypto_watchlist"].watch:
         for alias in entry.aliases:
-            assert alias in prompt
+            assert alias in user_msg
     assert "SOL" in out
 
 
@@ -85,9 +90,8 @@ def test_synthesize_truncates_to_max_input_items(cfg):
     with patch.object(synth, "_get_client", return_value=fake_client):
         synth.synthesize("crypto_general", many, cfg=cfg)
 
-    prompt = fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
-    # Items JSON is the LAST fenced block in the prompt (after "ITEMS (JSON):").
-    items_block = prompt.split("ITEMS (JSON):\n```\n", 1)[1].rsplit("\n```", 1)[0]
+    user_msg = fake_client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+    items_block = user_msg.split("ITEMS (JSON):\n", 1)[1]
     payload = json.loads(items_block)
     assert len(payload) == cfg.synth.max_input_items
 
@@ -138,11 +142,11 @@ def test_synthesize_escapes_html_in_titles_and_text(cfg):
     with patch.object(synth, "_get_client", return_value=fake_client):
         synth.synthesize("crypto_general", nasty, cfg=cfg)
 
-    prompt = fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
-    assert "<script>" not in prompt
-    assert "&lt;script&gt;" in prompt
-    assert "AT&amp;T" in prompt
-    assert '<a href="https://evil.example">' not in prompt
+    user_msg = fake_client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+    assert "<script>" not in user_msg
+    assert "&lt;script&gt;" in user_msg
+    assert "AT&amp;T" in user_msg
+    assert '<a href="https://evil.example">' not in user_msg
 
 
 def test_synthesize_raises_on_empty_content(cfg, items):
@@ -225,8 +229,8 @@ def test_synthesize_trims_long_items_in_prompt(cfg):
     with patch.object(synth, "_get_client", return_value=fake_client):
         synth.synthesize("crypto_general", items, cfg=cfg)
 
-    prompt = fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    user_msg = fake_client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
     # Each item's text in the JSON payload should be short, not 400 words.
-    # Naive check: the prompt should not contain "word " repeated more than
+    # Naive check: the user message should not contain "word" repeated more than
     # ~_MAX_BODY_WORDS times per item (3 items * 120 = 360 instances tops).
-    assert prompt.count("word") < 3 * synth._MAX_BODY_WORDS + 50
+    assert user_msg.count("word") < 3 * synth._MAX_BODY_WORDS + 50

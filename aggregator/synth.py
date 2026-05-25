@@ -112,16 +112,25 @@ def _get_client() -> OpenAI:
     return _client
 
 
-def _build_prompt(topic_id: str, items: list[dict[str, Any]], cfg: Config) -> str:
+def _build_messages(topic_id: str, items: list[dict[str, Any]], cfg: Config) -> list[dict[str, str]]:
+    """Return the system + user message pair for the OpenAI Chat API.
+
+    The system message is the (static) template — role, format spec, worked
+    example, and shared rules. The user message carries the per-run payload:
+    items JSON, plus the SYMBOLS line for watchlist topics. Splitting this way
+    lets the API cache the system prefix across runs.
+    """
     topic = cfg.topics[topic_id]
+    system = load_prompt(topic.prompt_template)
     items_json = json.dumps(items, ensure_ascii=False, indent=2)
-    template = load_prompt(topic.prompt_template)
     if topic.kind == "watchlist":
-        return template.format(
-            symbols=_format_watch_symbols(topic),
-            items_json=items_json,
-        )
-    return template.format(n_items=len(items), items_json=items_json)
+        user = f"SYMBOLS: {_format_watch_symbols(topic)}\n\nITEMS (JSON):\n{items_json}"
+    else:
+        user = f"ITEMS (JSON):\n{items_json}"
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
 
 
 def synthesize(topic_id: str, items: list[dict[str, Any]], *, cfg: Config) -> str:
@@ -130,14 +139,15 @@ def synthesize(topic_id: str, items: list[dict[str, Any]], *, cfg: Config) -> st
     query = _query_for_topic(topic_id, cfg)
     shortened = [_shorten_body(it, query) for it in capped]
     sanitized = [_sanitize_for_html(it) for it in shortened]
-    prompt = _build_prompt(topic_id, sanitized, cfg)
+    messages = _build_messages(topic_id, sanitized, cfg)
+    total_chars = sum(len(m["content"]) for m in messages)
     log.info("synth topic=%s items=%d prompt_chars=%d",
-             topic_id, len(capped), len(prompt))
+             topic_id, len(capped), total_chars)
 
     client = _get_client()
     resp = client.chat.completions.create(
         model=cfg.synth.model,
-        messages=[{"role": "user", "content": prompt}],
+        messages=messages,
         max_completion_tokens=cfg.synth.max_output_tokens,
         reasoning_effort="medium",
     )
