@@ -197,7 +197,7 @@ journalctl -u news-aggregator -f
 pytest -v
 ```
 
-All 77 tests run offline (sources, OpenAI, and Telegram are mocked via `respx` / `unittest.mock`).
+All 110 tests run offline (sources, OpenAI, and Telegram are mocked via `respx` / `unittest.mock`).
 
 ## Status
 
