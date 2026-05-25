@@ -29,6 +29,11 @@ def _setup_logging() -> None:
         level=level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # httpx logs full request URLs at INFO, which leaks our bot token
+    # (https://api.telegram.org/bot<TOKEN>/sendMessage). Pin it to WARNING.
+    # Same for openai / httpcore which also log URLs.
+    for noisy in ("httpx", "httpcore", "openai"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def _resolve_data_dir(cfg_data_dir: str) -> Path:

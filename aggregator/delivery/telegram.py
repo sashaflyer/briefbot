@@ -37,9 +37,26 @@ def _chunk(text: str, limit: int = _MAX_CHARS) -> list[str]:
             for i, c in enumerate(chunks)]
 
 
+def _is_parse_error(resp: httpx.Response) -> bool:
+    """Detect 'Bad Request: can't parse entities' — LLM emitted malformed Markdown."""
+    if resp.status_code != 400:
+        return False
+    try:
+        desc = (resp.json().get("description") or "").lower()
+    except Exception:  # noqa: BLE001
+        return False
+    return "can't parse entities" in desc or "cant parse entities" in desc
+
+
+async def _post(client: httpx.AsyncClient, token: str, payload: dict[str, Any]) -> httpx.Response:
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    return await client.post(url, json=payload, timeout=20.0)
+
+
 async def _send_one(client: httpx.AsyncClient, token: str, chat_id: str,
                     text: str, parse_mode: str) -> int | None:
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    """Send one chunk. If Telegram rejects our Markdown parse, fall back to
+    plain text once for the same chunk so the user still gets the message."""
     payload: dict[str, Any] = {
         "chat_id": chat_id,
         "text": text,
@@ -48,9 +65,25 @@ async def _send_one(client: httpx.AsyncClient, token: str, chat_id: str,
     }
     for attempt in range(1, _RETRIES + 1):
         try:
-            resp = await client.post(url, json=payload, timeout=20.0)
+            resp = await _post(client, token, payload)
             if resp.status_code == 200 and resp.json().get("ok"):
                 return resp.json()["result"]["message_id"]
+
+            # Markdown rejection — one-shot retry as plain text so the chunk
+            # still goes out. We do not loop here; either the plain-text send
+            # works or we move on.
+            if _is_parse_error(resp) and payload.get("parse_mode"):
+                log.warning("telegram rejected %s formatting; retrying chunk as plain text",
+                            payload["parse_mode"])
+                fallback = dict(payload)
+                fallback["parse_mode"] = None
+                resp2 = await _post(client, token, fallback)
+                if resp2.status_code == 200 and resp2.json().get("ok"):
+                    return resp2.json()["result"]["message_id"]
+                log.warning("telegram plain-text fallback also failed: %s %s",
+                            resp2.status_code, resp2.text[:200])
+                return None
+
             log.warning("telegram send returned %s: %s", resp.status_code, resp.text[:200])
         except httpx.HTTPError as e:
             log.warning("telegram send error attempt=%d: %s", attempt, e)

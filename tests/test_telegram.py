@@ -79,3 +79,73 @@ async def test_returns_empty_on_persistent_failure(cfg):
         )
         msg_ids = await telegram.send_digest("x", topic_id="crypto_general", cfg=cfg)
         assert msg_ids == []
+
+
+@pytest.mark.asyncio
+async def test_parse_error_falls_back_to_plain_text(cfg):
+    """When Telegram rejects the Markdown, retry the chunk as plain text."""
+    from aggregator.delivery import telegram
+
+    parse_error = httpx.Response(
+        400, json={"ok": False, "error_code": 400,
+                   "description": "Bad Request: can't parse entities: Can't find end of the entity starting at byte offset 1799"}
+    )
+    success = httpx.Response(200, json={"ok": True, "result": {"message_id": 999}})
+
+    with respx.mock(base_url="https://api.telegram.org") as mock:
+        # respx serves responses in order across consecutive calls.
+        mock.post("/botTEST_TOKEN/sendMessage").mock(
+            side_effect=[parse_error, success]
+        )
+        msg_ids = await telegram.send_digest(
+            "*unclosed bold _italic", topic_id="crypto_general", cfg=cfg
+        )
+        assert msg_ids == [999]
+
+        # Inspect the two calls: first with parse_mode, second without.
+        calls = mock.routes[0].calls
+        assert len(calls) == 2
+        body0 = calls[0].request.read().decode()
+        body1 = calls[1].request.read().decode()
+        assert "Markdown" in body0  # first attempt used configured parse_mode
+        # Second attempt: parse_mode is null/None (sent as JSON null)
+        assert '"parse_mode": null' in body1 or '"parse_mode":null' in body1
+
+
+@pytest.mark.asyncio
+async def test_parse_error_fallback_also_fails(cfg):
+    """If plain-text fallback also fails, return [] without further retries."""
+    from aggregator.delivery import telegram
+
+    parse_error = httpx.Response(
+        400, json={"ok": False, "description": "Bad Request: can't parse entities: x"}
+    )
+    server_error = httpx.Response(500, json={"ok": False, "description": "server error"})
+
+    with respx.mock(base_url="https://api.telegram.org") as mock:
+        mock.post("/botTEST_TOKEN/sendMessage").mock(
+            side_effect=[parse_error, server_error]
+        )
+        msg_ids = await telegram.send_digest(
+            "*bad markdown", topic_id="crypto_general", cfg=cfg
+        )
+        assert msg_ids == []
+        # Should have made exactly 2 attempts: the markdown one and one plain-text fallback.
+        # No additional retries after fallback fails.
+        assert mock.routes[0].call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_normal_5xx_still_retries_after_fix(cfg):
+    """Pre-existing 5xx retry behavior must still work alongside the new fallback."""
+    from aggregator.delivery import telegram
+
+    with respx.mock(base_url="https://api.telegram.org") as mock:
+        mock.post("/botTEST_TOKEN/sendMessage").mock(
+            side_effect=[
+                httpx.Response(500, json={"ok": False}),
+                httpx.Response(200, json={"ok": True, "result": {"message_id": 7}}),
+            ]
+        )
+        msg_ids = await telegram.send_digest("ok", topic_id="crypto_general", cfg=cfg)
+        assert msg_ids == [7]
