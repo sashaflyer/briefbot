@@ -75,3 +75,34 @@ async def test_status_unauthorized_chat_ignored(storage):
     ctx = make_ctx(storage, started_at=datetime.now(timezone.utc))
     await handle_status(upd, ctx)
     upd.message.reply_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_status_long_reply_is_chunked(tmp_path):
+    """Many topics + many source_health rows can push the reply past 4096
+    chars; must split into chunks rather than fail with HTTP 400.
+    """
+    from aggregator.config import TopicConfig
+    s = Storage(str(tmp_path / "t.db"))
+    s.init_schema()
+    topics = {
+        f"topic_{i:03d}": TopicConfig(
+            kind="general", sources=["reddit"], subreddits=["X"],
+            polymarket_tags=["crypto"], prompt_template="general_crypto.md",
+            top_n=10, schedule="0 8 * * *",
+        )
+        for i in range(150)
+    }
+    s.seed_topics(topics)
+    now = datetime.now(timezone.utc)
+    for i in range(30):
+        s.record_source_success(f"src_{i:03d}", at=now)
+
+    upd = make_update(chat_id=12345)
+    ctx = make_ctx(s, started_at=now)
+    await handle_status(upd, ctx)
+    # Must have been called more than once because content exceeds 4000 chars.
+    assert upd.message.reply_text.await_count >= 2
+    for call in upd.message.reply_text.await_args_list:
+        assert len(call.args[0]) <= 4096
+        assert call.kwargs.get("parse_mode") == "HTML"

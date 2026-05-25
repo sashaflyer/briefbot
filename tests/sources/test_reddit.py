@@ -123,3 +123,35 @@ def test_fetch_subreddit_returns_empty_on_network_error():
                side_effect=urllib.error.URLError("connection refused")):
         posts = _fetch_subreddit("CryptoCurrency", limit=25)
     assert posts == []
+
+
+def test_to_item_falls_back_to_url_when_id_is_unstable_search_counter():
+    """``_search_reddit`` returns ids like ``R1``/``R2`` per call; using them
+    directly causes cross-symbol collisions inside a single watchlist topic.
+    """
+    from aggregator.sources.reddit import _to_item
+
+    raw_a = {"id": "R1", "title": "BTC post",
+             "url": "https://reddit.com/r/Bitcoin/comments/aaa/title/",
+             "subreddit": "Bitcoin", "score": 100,
+             "engagement": {"score": 100, "num_comments": 10}}
+    raw_b = {"id": "R1", "title": "ETH post",
+             "url": "https://reddit.com/r/Ethereum/comments/bbb/title/",
+             "subreddit": "Ethereum", "score": 50,
+             "engagement": {"score": 50, "num_comments": 5}}
+
+    a = _to_item(raw_a)
+    b = _to_item(raw_b)
+    assert a.id != b.id, "unstable R1 ids must not collide across searches"
+    assert a.id.endswith("aaa/title/")
+
+
+def test_to_item_uses_reddit_id_when_present():
+    """Subreddit hot fetcher always sets reddit_id — prefer it as the stable key."""
+    from aggregator.sources.reddit import _to_item
+    raw = {"reddit_id": "abc123", "id": "R1",
+           "url": "https://reddit.com/r/X/comments/abc123/title/",
+           "title": "t", "subreddit": "X", "score": 1,
+           "engagement": {"score": 1, "num_comments": 0}}
+    item = _to_item(raw)
+    assert item.id == "reddit:abc123"

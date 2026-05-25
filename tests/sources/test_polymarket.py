@@ -34,3 +34,46 @@ async def test_fetch_with_symbols_filters_by_question():
 async def test_fetch_handles_empty_queries():
     src = PolymarketSource()
     assert await src.fetch({}) == []
+
+
+@pytest.mark.asyncio
+async def test_symbol_filter_word_boundary_not_substring():
+    """`ETH` must not match `ETHICS`, `ADA` must not match `Canada`, etc."""
+    decoys = [
+        {
+            "event_id": "x1",
+            "title": "Will ethics rules pass in Congress",
+            "question": "Will ethics rules pass in Congress",
+            "url": "https://polymarket.com/event/x1",
+            "date": "2026-05-24",
+        },
+        {
+            "event_id": "x2",
+            "title": "Trade flows in Canada vs Mexico",
+            "question": "Canada trade",
+            "url": "https://polymarket.com/event/x2",
+            "date": "2026-05-24",
+        },
+    ]
+    with patch("aggregator.sources.polymarket._fetch_by_tag", return_value=decoys):
+        src = PolymarketSource()
+        items = await src.fetch({"symbols": ["ETH", "ADA"]})
+    assert items == []
+
+
+def test_to_item_reads_volume_from_volume1mo():
+    """Vendor exposes volume under volume1mo / volume24hr, not top-level volume."""
+    from aggregator.sources.polymarket import _to_item
+    raw = {
+        "event_id": "evt1",
+        "title": "Will X happen?",
+        "url": "https://polymarket.com/event/x",
+        "volume24hr": 100.0,
+        "volume1mo": 4000.0,
+        "date": "2026-05-20",
+    }
+    item = _to_item(raw)
+    assert item.engagement_raw["volume"] == 4000.0
+    assert item.created_at.year == 2026
+    assert item.created_at.month == 5
+    assert item.created_at.day == 20

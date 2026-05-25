@@ -110,6 +110,97 @@ def test_long_body_gets_trimmed(cfg):
     assert out["id"] == "r:1"  # rest of fields preserved
 
 
+def test_synthesize_escapes_html_in_titles_and_text(cfg):
+    """Defense-in-depth: titles/bodies are HTML-escaped before the LLM sees
+    them so a prompt-injected title can't surface attacker-chosen tags in the
+    HTML-rendered Telegram digest.
+    """
+    from aggregator import synth
+
+    nasty = [{
+        "id": "reddit:1", "source": "reddit",
+        "title": "<script>alert(1)</script> AT&T earnings",
+        "url": "https://reddit.com/1",
+        "text": '<a href="https://evil.example">click</a>',
+        "created_at": "2026-05-24T00:00:00+00:00",
+        "engagement_raw": {"upvotes": 1}, "metadata": {},
+    }]
+    fake_resp = MagicMock()
+    fake_resp.choices = [MagicMock(message=MagicMock(content="OK"))]
+    fake_resp.usage = MagicMock(prompt_tokens=1, completion_tokens=1, total_tokens=2)
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.return_value = fake_resp
+
+    with patch.object(synth, "_get_client", return_value=fake_client):
+        synth.synthesize("crypto_general", nasty, cfg=cfg)
+
+    prompt = fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    assert "<script>" not in prompt
+    assert "&lt;script&gt;" in prompt
+    assert "AT&amp;T" in prompt
+    assert '<a href="https://evil.example">' not in prompt
+
+
+def test_synthesize_raises_on_empty_content(cfg, items):
+    """Empty LLM output must NOT be silently delivered; raise instead so the
+    pipeline doesn't mark every ranked item as delivered for a blank message.
+    """
+    from aggregator import synth
+
+    fake_resp = MagicMock()
+    fake_resp.choices = [MagicMock(message=MagicMock(content=""))]
+    fake_resp.usage = MagicMock(prompt_tokens=1, completion_tokens=0, total_tokens=1)
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.return_value = fake_resp
+
+    with patch.object(synth, "_get_client", return_value=fake_client):
+        with pytest.raises(RuntimeError, match="empty"):
+            synth.synthesize("crypto_general", items, cfg=cfg)
+
+
+def test_synthesize_handles_none_usage(cfg, items):
+    """If the OpenAI response has usage=None, don't crash after a good call."""
+    from aggregator import synth
+
+    fake_resp = MagicMock()
+    fake_resp.choices = [MagicMock(message=MagicMock(content="DIGEST"))]
+    fake_resp.usage = None
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.return_value = fake_resp
+
+    with patch.object(synth, "_get_client", return_value=fake_client):
+        out = synth.synthesize("crypto_general", items, cfg=cfg)
+    assert out == "DIGEST"
+
+
+@pytest.mark.asyncio
+async def test_synthesize_async_runs_blocking_call_off_loop(cfg, items):
+    """``synthesize_async`` must dispatch to a worker thread, not block the loop."""
+    import threading
+
+    from aggregator import synth
+
+    loop_thread = threading.current_thread()
+    seen_thread: list[threading.Thread] = []
+
+    fake_resp = MagicMock()
+    fake_resp.choices = [MagicMock(message=MagicMock(content="OK"))]
+    fake_resp.usage = MagicMock(prompt_tokens=1, completion_tokens=1, total_tokens=2)
+
+    def fake_create(**_kwargs):
+        seen_thread.append(threading.current_thread())
+        return fake_resp
+
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.side_effect = fake_create
+
+    with patch.object(synth, "_get_client", return_value=fake_client):
+        out = await synth.synthesize_async("crypto_general", items, cfg=cfg)
+
+    assert out == "OK"
+    assert seen_thread and seen_thread[0] is not loop_thread
+
+
 def test_synthesize_trims_long_items_in_prompt(cfg):
     from unittest.mock import MagicMock, patch
     from aggregator import synth

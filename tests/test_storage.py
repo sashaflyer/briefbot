@@ -169,3 +169,30 @@ def test_recently_delivered_urls_filters_by_time(tmp_path):
         topic_id="crypto_general", since=now - timedelta(days=7)
     )
     assert recent == {"https://new.com"}
+
+
+def test_prune_delivered_findings_deletes_old_rows(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from aggregator.storage import Storage
+
+    s = Storage(str(tmp_path / "t.db"))
+    s.init_schema()
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=30)
+    s.record_delivered_items(
+        topic_id="t1",
+        items=[{"id": "old", "url": "https://old.com", "title": "o"}],
+        at=old,
+    )
+    s.record_delivered_items(
+        topic_id="t1",
+        items=[{"id": "new", "url": "https://new.com", "title": "n"}],
+        at=now,
+    )
+    deleted = s.prune_delivered_findings(older_than=now - timedelta(days=7))
+    assert deleted == 1
+    # The "new" row survives.
+    remaining = s.recently_delivered_urls(
+        topic_id="t1", since=now - timedelta(days=365)
+    )
+    assert remaining == {"https://new.com"}

@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -101,11 +102,24 @@ def _parse_created_at(raw: dict[str, Any]) -> datetime:
     return datetime.now(timezone.utc)
 
 
+_UNSTABLE_SEARCH_ID = re.compile(r"^R\d+$")
+
+
 def _to_item(raw: dict[str, Any]) -> Item:
     """Map an upstream post dict to our Item."""
     url = str(raw.get("url", ""))
-    # Derive a stable id from the URL (upstream "R1"/"R2" ids are not stable).
-    raw_id = str(raw.get("reddit_id") or raw.get("id") or url)
+    # ``_fetch_subreddit`` sets ``reddit_id`` (real Reddit post id, stable).
+    # ``_search_reddit`` sets ``id`` to a per-call counter "R1"/"R2"/... which
+    # collides across symbol queries — fall through to URL in that case so
+    # different posts from different searches don't share the same Item.id.
+    reddit_id = raw.get("reddit_id")
+    raw_id_candidate = raw.get("id")
+    if reddit_id:
+        raw_id = str(reddit_id)
+    elif raw_id_candidate and not _UNSTABLE_SEARCH_ID.match(str(raw_id_candidate)):
+        raw_id = str(raw_id_candidate)
+    else:
+        raw_id = url
     upstream_engagement = raw.get("engagement") or {}
     score = upstream_engagement.get("score", raw.get("score", 0))
     num_comments = upstream_engagement.get("num_comments", raw.get("num_comments", 0))
@@ -140,14 +154,16 @@ class RedditSource(Source):
         if not subreddits and not symbols:
             return []
 
+        # Run subreddit fetches and symbol searches concurrently. Each call
+        # is independent; serially awaiting them added ~1-2s per query.
+        tasks = [asyncio.to_thread(_fetch_subreddit, sub, 25) for sub in subreddits]
+        tasks += [asyncio.to_thread(_search_reddit, sym, 15) for sym in symbols]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
         items: list[Item] = []
-
-        for sub in subreddits:
-            raws = await asyncio.to_thread(_fetch_subreddit, sub, 25)
+        for raws in results:
+            if isinstance(raws, Exception):
+                log.warning("reddit subquery failed: %s", raws)
+                continue
             items.extend(_to_item(r) for r in raws)
-
-        for sym in symbols:
-            raws = await asyncio.to_thread(_search_reddit, sym, 15)
-            items.extend(_to_item(r) for r in raws)
-
         return items

@@ -83,7 +83,10 @@ async def serve(*, config_path: str) -> None:
         await stop.wait()
     finally:
         log.info("shutting down")
-        scheduler.shutdown(wait=False)
+        # wait=True so an in-flight digest finishes; otherwise its run_history
+        # row stays in 'started' forever and the items it was about to record
+        # as delivered can be re-delivered on next launch.
+        scheduler.shutdown(wait=True)
         await app.updater.stop()
         await app.stop()
         await app.shutdown()

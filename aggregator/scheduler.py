@@ -35,6 +35,11 @@ def build_scheduler(cfg: Config, storage: Storage) -> AsyncIOScheduler:
             args=(topic["name"], cfg, storage),
             id=f"digest_{topic['name']}",
             misfire_grace_time=3600,
+            # Without coalesce, N missed firings during a pause (laptop sleep,
+            # restart, debugger break) all queue up — N duplicate digests and
+            # N× the LLM bill. Collapse to a single catch-up run.
+            coalesce=True,
+            max_instances=1,
             replace_existing=True,
         )
         log.info("scheduled %s with cron %s in tz %s",

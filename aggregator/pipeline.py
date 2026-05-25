@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -13,7 +14,7 @@ from aggregator.sources.hn import HnSource
 from aggregator.sources.polymarket import PolymarketSource
 from aggregator.sources.reddit import RedditSource
 from aggregator.storage import Storage
-from aggregator.synth import synthesize
+from aggregator.synth import synthesize_async
 from aggregator.delivery.telegram import send_digest
 from aggregator.vendor.last30days import dedupe as _dedupe
 from aggregator.vendor.last30days import reddit_enrich as _reddit_enrich
@@ -102,9 +103,11 @@ async def _enrich_reddit_items(items: list[Item]) -> list[Item]:
             )
         except Exception as e:  # noqa: BLE001
             log.warning("reddit enrich failed for %s: %s", item.url, e)
-            # Treat as "stop, the next call would probably fail too" only if
-            # the exception name suggests rate limiting.
-            if "RateLimit" in type(e).__name__:
+            # Upstream raises httpx.HTTPStatusError on 429; the previous check
+            # on `"RateLimit" in type(e).__name__` never matched. On a real
+            # rate-limit, abort the loop so we don't earn a longer ban.
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status == 429:
                 log.warning("reddit rate-limited; aborting enrichment for remaining items")
                 break
             continue
@@ -222,6 +225,11 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
 
     # Drop items we already delivered in a recent digest for this topic.
     since = datetime.now(timezone.utc) - timedelta(days=cfg.scoring.dedup_window_days)
+    # Prune rows beyond the dedup window so the table doesn't grow unbounded.
+    # Cheap, idempotent; one DELETE per run, indexed by delivered_at.
+    pruned = storage.prune_delivered_findings(older_than=since)
+    if pruned:
+        log.info("pruned %d delivered_findings rows older than %s", pruned, since.date())
     recent_urls = storage.recently_delivered_urls(topic_id=topic_id, since=since)
     if recent_urls:
         before = len(items)
@@ -258,10 +266,17 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
         return RunResult(run_id, status, fetched, 0)
 
     try:
-        message_text = synthesize(topic_id, [i.to_dict() for i in ranked], cfg=cfg)
+        message_text = await synthesize_async(
+            topic_id, [i.to_dict() for i in ranked], cfg=cfg
+        )
     except Exception as e:
         log.exception("synthesis failed")
-        message_text = f"news-aggregator: digest for {topic_id} failed during synthesis: {e}"
+        # html.escape because send_digest uses parse_mode=HTML; raw < > & in
+        # the exception message would otherwise force the plain-text fallback.
+        message_text = (
+            f"news-aggregator: digest for {html.escape(topic_id)} "
+            f"failed during synthesis: {html.escape(str(e))}"
+        )
         msg_ids = await send_digest(message_text, topic_id=topic_id, cfg=cfg)
         storage.log_digest(run_id=run_id, topic_id=topic_id, message_text=message_text,
                            telegram_message_ids=msg_ids, at=datetime.now(timezone.utc))

@@ -8,6 +8,8 @@ from typing import Any
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from aggregator.delivery.telegram import _chunk
+
 
 def _fmt_dt(iso: str | None) -> str:
     if not iso:
@@ -80,4 +82,7 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             f"last success {last_ok}"
         )
 
-    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    # Chunk so a status reply over Telegram's 4096-char limit (many topics +
+    # accumulated source_health rows) doesn't fail with HTTP 400.
+    for chunk in _chunk("\n".join(lines)):
+        await update.message.reply_text(chunk, parse_mode="HTML")

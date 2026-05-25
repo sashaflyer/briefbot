@@ -47,8 +47,8 @@ async def test_run_digest_happy_path(cfg, storage):
         return_value={"reddit": reddit_items, "polymarket": poly_items}
     )), patch.object(pipeline, "_score_and_dedup",
                      side_effect=lambda items, **kw: items[: cfg.topics["crypto_general"].top_n]
-    ), patch.object(pipeline, "synthesize", return_value="DIGEST TEXT"
-    ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[101])):
+    ), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="DIGEST TEXT"
+    )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[101])):
         result = await pipeline.run_digest("crypto_general", cfg, storage,
                                            trigger="scheduled")
 
@@ -70,8 +70,8 @@ async def test_run_digest_one_source_fails(cfg, storage):
     with patch.object(pipeline, "_fetch_all", side_effect=fake_fetch_all
     ), patch.object(pipeline, "_score_and_dedup",
                      side_effect=lambda items, **kw: items
-    ), patch.object(pipeline, "synthesize", return_value="DIGEST"
-    ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
+    ), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="DIGEST"
+    )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
         result = await pipeline.run_digest("crypto_general", cfg, storage,
                                            trigger="scheduled")
 
@@ -176,8 +176,8 @@ async def test_run_digest_filters_previously_delivered(cfg, storage):
     first_items = [make_distinct_item("reddit", i) for i in range(3)]
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
         return_value={"reddit": first_items, "polymarket": []}
-    )), patch.object(pipeline, "synthesize", return_value="DIGEST1"
-    ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
+    )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="DIGEST1"
+    )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
         result1 = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
     assert result1.status == "ok"
     assert result1.items_delivered == 3
@@ -187,8 +187,8 @@ async def test_run_digest_filters_previously_delivered(cfg, storage):
     fresh = [make_distinct_item("polymarket", i) for i in range(3, 5)]
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
         return_value={"reddit": repeat, "polymarket": fresh}
-    )), patch.object(pipeline, "synthesize", return_value="DIGEST2"
-    ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[2])):
+    )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="DIGEST2"
+    )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[2])):
         result2 = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
 
     assert result2.status == "ok"
@@ -204,15 +204,15 @@ async def test_run_digest_does_not_record_when_telegram_fails(cfg, storage):
     items = [make_distinct_item("reddit", i) for i in range(3)]
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
         return_value={"reddit": items, "polymarket": []}
-    )), patch.object(pipeline, "synthesize", return_value="DIGEST"
-    ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[])):
+    )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="DIGEST"
+    )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[])):
         await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
 
     items2 = [make_distinct_item("reddit", i) for i in range(3)]
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
         return_value={"reddit": items2, "polymarket": []}
-    )), patch.object(pipeline, "synthesize", return_value="D2"
-    ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
+    )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="D2"
+    )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
         result = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
     assert result.items_delivered == 3
 
@@ -229,8 +229,8 @@ async def test_run_digest_empty_after_filter_sends_heartbeat(cfg, storage):
     # First run delivers all 3.
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
         return_value={"reddit": items, "polymarket": []}
-    )), patch.object(pipeline, "synthesize", return_value="D1"
-    ), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
+    )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="D1"
+    )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
         r1 = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
     assert r1.items_delivered == 3
 
@@ -238,8 +238,8 @@ async def test_run_digest_empty_after_filter_sends_heartbeat(cfg, storage):
     same_items = [make_distinct_item("reddit", i) for i in range(3)]
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
         return_value={"reddit": same_items, "polymarket": []}
-    )), patch.object(pipeline, "synthesize", return_value="SHOULD NOT BE CALLED"
-    ) as fake_synth, patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[42])) as fake_send:
+    )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="SHOULD NOT BE CALLED"
+    )) as fake_synth, patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[42])) as fake_send:
         r2 = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
 
     # Synth must NOT be called (saves a costly LLM round-trip).
@@ -316,16 +316,21 @@ async def test_enrich_reddit_items_continues_on_failure():
 
 @pytest.mark.asyncio
 async def test_enrich_reddit_items_aborts_on_rate_limit():
-    """If upstream raises a *RateLimit* error, stop enriching the rest."""
-    from unittest.mock import patch
+    """If upstream raises a 429-bearing HTTP error, stop enriching the rest."""
+    from unittest.mock import MagicMock, patch
     from aggregator import pipeline
 
-    class RedditRateLimitError(Exception): pass
+    # Upstream reddit_enrich uses httpx; mimic the .response.status_code shape
+    # without taking a hard test dep on httpx internals.
+    class FakeHTTPError(Exception):
+        def __init__(self, status):
+            super().__init__(f"HTTP {status}")
+            self.response = MagicMock(status_code=status)
 
     calls = []
     def fake(item):
         calls.append(item["url"])
-        raise RedditRateLimitError("429")
+        raise FakeHTTPError(429)
 
     items = [make_distinct_item("reddit", i) for i in range(5)]
     with patch.object(pipeline._reddit_enrich, "enrich_reddit_item", side_effect=fake):
@@ -333,6 +338,30 @@ async def test_enrich_reddit_items_aborts_on_rate_limit():
 
     # Should bail after the first rate-limit signal.
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_enrich_reddit_items_continues_on_non_429():
+    """Non-rate-limit failures should NOT abort the loop early."""
+    from unittest.mock import MagicMock, patch
+    from aggregator import pipeline
+
+    class FakeHTTPError(Exception):
+        def __init__(self, status):
+            super().__init__(f"HTTP {status}")
+            self.response = MagicMock(status_code=status)
+
+    calls = []
+    def fake(item):
+        calls.append(item["url"])
+        raise FakeHTTPError(500)
+
+    items = [make_distinct_item("reddit", i) for i in range(3)]
+    with patch.object(pipeline._reddit_enrich, "enrich_reddit_item", side_effect=fake):
+        await pipeline._enrich_reddit_items(items)
+
+    # Each item attempted — 500 is transient, not a rate-limit abort signal.
+    assert len(calls) == 3
 
 
 @pytest.mark.asyncio

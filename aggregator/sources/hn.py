@@ -37,18 +37,13 @@ def _fetch_hn(query: str, limit: int = 15) -> list[dict[str, Any]]:
 
 
 def _parse_created_at(raw: dict[str, Any]) -> datetime:
-    """HN dicts carry either ``created_at`` (ISO) or ``created_at_i`` (epoch)."""
-    epoch = raw.get("created_at_i")
-    if isinstance(epoch, (int, float)):
+    """Vendor emits a YYYY-MM-DD ``date`` string (derived from Algolia's
+    created_at_i). Fall back to now() if missing/malformed.
+    """
+    date_str = raw.get("date")
+    if date_str:
         try:
-            return datetime.fromtimestamp(float(epoch), tz=timezone.utc)
-        except (ValueError, OSError):
-            pass
-    iso = raw.get("created_at")
-    if iso:
-        try:
-            s = str(iso).replace("Z", "+00:00")
-            dt = datetime.fromisoformat(s)
+            dt = datetime.fromisoformat(str(date_str))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt
@@ -58,17 +53,24 @@ def _parse_created_at(raw: dict[str, Any]) -> datetime:
 
 
 def _to_item(raw: dict[str, Any]) -> Item:
-    """Map an upstream HN dict to our Item."""
-    native_id = str(raw.get("objectID") or raw.get("id") or raw.get("hn_url", ""))
+    """Map an upstream HN dict to our Item.
+
+    Vendor ``parse_hackernews_response`` output shape:
+        {"id": "<objectID>", "title": ..., "url": ..., "hn_url": ...,
+         "author": ..., "date": "YYYY-MM-DD",
+         "engagement": {"points": int, "comments": int}, ...}
+    """
+    native_id = str(raw.get("id") or raw.get("hn_url", ""))
     url = str(raw.get("url") or raw.get("hn_url") or "")
-    points = raw.get("points") or raw.get("score") or 0
-    comments = raw.get("num_comments") or 0
+    eng = raw.get("engagement") or {}
+    points = eng.get("points") or 0
+    comments = eng.get("comments") or 0
     return Item(
         id=f"hackernews:{native_id}",
         source="hackernews",
         title=str(raw.get("title") or "").strip(),
         url=url,
-        text=str(raw.get("story_text") or raw.get("text") or ""),
+        text="",  # vendor doesn't surface story_text/text
         created_at=_parse_created_at(raw),
         engagement_raw={
             "points": points,
@@ -94,8 +96,15 @@ class HnSource(Source):
         if not all_queries:
             return []
 
+        # Concurrent search per keyword; sequential awaited 1-3s each.
+        results = await asyncio.gather(
+            *(asyncio.to_thread(_fetch_hn, q, 15) for q in all_queries),
+            return_exceptions=True,
+        )
         items: list[Item] = []
-        for q in all_queries:
-            raws = await asyncio.to_thread(_fetch_hn, q, 15)
+        for raws in results:
+            if isinstance(raws, Exception):
+                log.warning("hn subquery failed: %s", raws)
+                continue
             items.extend(_to_item(r) for r in raws)
         return items

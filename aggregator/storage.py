@@ -341,3 +341,22 @@ class Storage:
             return {row["url"] for row in cur.fetchall() if row["url"]}
         finally:
             conn.close()
+
+    def prune_delivered_findings(self, *, older_than: datetime) -> int:
+        """Delete delivered_findings rows older than ``older_than``.
+
+        The cross-run dedup window is ``cfg.scoring.dedup_window_days``; rows
+        beyond that window are no longer consulted by ``recently_delivered_urls``
+        and would otherwise grow unbounded over time, slowing the
+        ``SELECT DISTINCT url`` scan on every run.
+        """
+        conn = self._connect()
+        try:
+            cur = conn.execute(
+                "DELETE FROM delivered_findings WHERE delivered_at < ?",
+                (_iso(older_than),),
+            )
+            conn.commit()
+            return cur.rowcount or 0
+        finally:
+            conn.close()

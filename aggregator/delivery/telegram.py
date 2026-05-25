@@ -15,6 +15,9 @@ log = logging.getLogger(__name__)
 _MAX_CHARS = 4000
 _RETRIES = 3
 _BACKOFF_BASE = 2.0
+# 4xx responses Telegram won't change its mind on — don't waste retries.
+# 401: bad token (rotated/revoked). 403: bot blocked or kicked. 404: bad chat id.
+_NON_RETRIABLE_STATUSES = frozenset({401, 403, 404})
 
 
 def _chunk(text: str, limit: int = _MAX_CHARS) -> list[str]:
@@ -33,7 +36,9 @@ def _chunk(text: str, limit: int = _MAX_CHARS) -> list[str]:
     if remaining:
         chunks.append(remaining)
     total = len(chunks)
-    return [f"{c}\n\n_({i + 1}/{total})_" if total > 1 else c
+    # HTML mode renders `_..._` as literal underscores. Use <i>...</i> so the
+    # page counter italicizes correctly under the configured parse_mode.
+    return [f"{c}\n\n<i>({i + 1}/{total})</i>" if total > 1 else c
             for i, c in enumerate(chunks)]
 
 
@@ -87,6 +92,10 @@ async def _send_one(client: httpx.AsyncClient, token: str, chat_id: str,
                 return None
 
             log.warning("telegram send returned %s: %s", resp.status_code, resp.text[:200])
+            if resp.status_code in _NON_RETRIABLE_STATUSES:
+                # Bot blocked, token revoked, or chat gone — retrying with
+                # backoff just wastes seconds and pollutes logs every run.
+                return None
         except httpx.HTTPError as e:
             log.warning("telegram send error attempt=%d: %s", attempt, e)
         if attempt < _RETRIES:

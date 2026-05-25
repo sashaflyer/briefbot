@@ -69,7 +69,16 @@ async def test_to_item_preserves_hn_link_when_no_external_url():
         src = HnSource()
         items = await src.fetch({"polymarket_tags": ["crypto"]})
 
-    # Third fixture item is an Ask HN with the HN URL itself as `url`.
+    # Third fixture item is an Ask HN with no external url; fall back to hn_url.
     ask_hn = next(it for it in items if "Ask HN" in it.title)
     assert "news.ycombinator.com" in ask_hn.url
-    assert ask_hn.text  # has story_text body
+
+
+@pytest.mark.asyncio
+async def test_to_item_parses_date_into_aware_datetime():
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    with patch("aggregator.sources.hn._fetch_hn", return_value=fixture):
+        src = HnSource()
+        items = await src.fetch({"polymarket_tags": ["crypto"]})
+    assert items[0].created_at.year == 2026
+    assert items[0].created_at.tzinfo is not None

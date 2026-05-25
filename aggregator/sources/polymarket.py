@@ -11,11 +11,15 @@ treat each upstream "tag" as a topic query and flatten to a list of dicts.
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from aggregator.sources.base import Item, Source
 from aggregator.vendor.last30days import polymarket as _upstream
+
+log = logging.getLogger(__name__)
 
 
 def _fetch_by_tag(tag: str, limit: int = 50) -> list[dict[str, Any]]:
@@ -34,12 +38,15 @@ def _fetch_by_tag(tag: str, limit: int = 50) -> list[dict[str, Any]]:
 
 
 def _parse_created_at(raw: dict[str, Any]) -> datetime:
-    """Pick an event datetime. Prefer ``endDate``, fall back to now()."""
-    end = raw.get("endDate") or raw.get("end_date")
-    if end:
+    """Use vendor's ``date`` (derived from event.updatedAt). Fall back to now().
+
+    Note: ``end_date`` is the market resolution date — usually in the future —
+    so it must NOT be used as the item's creation timestamp.
+    """
+    date_str = raw.get("date")
+    if date_str:
         try:
-            s = str(end).replace("Z", "+00:00")
-            dt = datetime.fromisoformat(s)
+            dt = datetime.fromisoformat(str(date_str))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt
@@ -49,15 +56,18 @@ def _parse_created_at(raw: dict[str, Any]) -> datetime:
 
 
 def _to_item(raw: dict[str, Any]) -> Item:
-    """Map an upstream Polymarket event/market dict to our Item."""
-    raw_id = str(raw.get("id") or raw.get("slug") or raw.get("url", ""))
-    title = str(raw.get("title") or raw.get("question") or "").strip()
-    text = str(raw.get("description") or "")
+    """Map an upstream Polymarket event dict to our Item.
 
-    # URL precedence:
-    # 1. explicit upstream url (rare in practice for Gamma events)
-    # 2. construct from slug: https://polymarket.com/event/<slug>
-    # 3. fall back to empty so downstream synth can skip un-linkable items
+    Vendor ``parse_polymarket_response`` output shape:
+        {"event_id", "title", "question", "url", "outcome_prices",
+         "volume24hr", "volume1mo", "liquidity", "date", "end_date", ...}
+    Legacy/test-fixture keys (``id``, ``slug``, ``volume``, ``outcomes``,
+    ``description``) are still tolerated as fallbacks.
+    """
+    raw_id = str(raw.get("event_id") or raw.get("id") or raw.get("slug") or raw.get("url", ""))
+    title = str(raw.get("title") or raw.get("question") or "").strip()
+    text = str(raw.get("description") or raw.get("question") or "")
+
     upstream_url = str(raw.get("url", "")).strip()
     slug = str(raw.get("slug", "")).strip()
     if upstream_url and upstream_url not in ("https://polymarket.com", "https://polymarket.com/"):
@@ -67,6 +77,10 @@ def _to_item(raw: dict[str, Any]) -> Item:
     else:
         url = ""
 
+    # Volume: vendor exposes volume1mo/volume24hr; prefer 1mo as the more
+    # stable signal, fall back to 24hr, then a legacy top-level ``volume``.
+    volume = raw.get("volume1mo") or raw.get("volume24hr") or raw.get("volume")
+
     return Item(
         id=f"polymarket:{raw_id}",
         source="polymarket",
@@ -75,23 +89,31 @@ def _to_item(raw: dict[str, Any]) -> Item:
         text=text,
         created_at=_parse_created_at(raw),
         engagement_raw={
-            "volume": raw.get("volume"),
+            "volume": volume,
+            "volume24hr": raw.get("volume24hr"),
+            "volume1mo": raw.get("volume1mo"),
             "liquidity": raw.get("liquidity"),
-            "outcomes": raw.get("outcomes"),
-            "outcome_prices": raw.get("outcome_prices"),
+            "outcome_prices": raw.get("outcome_prices") or raw.get("outcomes"),
         },
         metadata={
-            "slug": raw.get("slug", ""),
+            "slug": slug,
             "end_date": raw.get("end_date") or raw.get("endDate"),
-            "tags": raw.get("tags", []),
+            "question": raw.get("question", ""),
         },
     )
 
 
 def _matches_any_symbol(item: Item, symbols: list[str]) -> bool:
-    """Case-insensitive substring match against title or text."""
-    hay = f"{item.title}\n{item.text}".upper()
-    return any(sym.upper() in hay for sym in symbols)
+    """Word-boundary, case-insensitive match against title or text.
+
+    Substring matching would false-positive on ``ETH`` in ``ETHICS``,
+    ``ADA`` in ``Canada``, ``SOL`` in ``solely``, etc.
+    """
+    hay = f"{item.title}\n{item.text}"
+    for sym in symbols:
+        if re.search(rf"\b{re.escape(sym)}\b", hay, flags=re.IGNORECASE):
+            return True
+    return False
 
 
 class PolymarketSource(Source):
@@ -109,9 +131,16 @@ class PolymarketSource(Source):
         if not tags and symbols:
             tags = ["crypto"]
 
+        # Concurrent fetch per tag; one tag's failure shouldn't kill the rest.
+        results = await asyncio.gather(
+            *(asyncio.to_thread(_fetch_by_tag, tag, 50) for tag in tags),
+            return_exceptions=True,
+        )
         items: list[Item] = []
-        for tag in tags:
-            raws = await asyncio.to_thread(_fetch_by_tag, tag, 50)
+        for raws in results:
+            if isinstance(raws, Exception):
+                log.warning("polymarket subquery failed: %s", raws)
+                continue
             items.extend(_to_item(r) for r in raws)
 
         if symbols:

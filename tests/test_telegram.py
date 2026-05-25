@@ -137,6 +137,43 @@ async def test_parse_error_fallback_also_fails(cfg):
 
 
 @pytest.mark.asyncio
+async def test_non_retriable_4xx_short_circuits(cfg):
+    """401/403/404 must NOT burn three retries with backoff — token revoked,
+    bot blocked, or chat gone won't change between attempts."""
+    from aggregator.delivery import telegram
+
+    with respx.mock(base_url="https://api.telegram.org") as mock:
+        route = mock.post("/botTEST_TOKEN/sendMessage").mock(
+            return_value=httpx.Response(
+                403, json={"ok": False, "description": "Forbidden: bot was blocked by the user"}
+            )
+        )
+        msg_ids = await telegram.send_digest("hi", topic_id="crypto_general", cfg=cfg)
+        assert msg_ids == []
+        # Exactly one attempt, no retry loop.
+        assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_chunk_suffix_uses_html_italic_under_html_mode(cfg):
+    """Page counter must be valid HTML, not Markdown underscores."""
+    from aggregator.delivery import telegram
+
+    text = ("p1\n\n" * 1500) + "end"
+    with respx.mock(base_url="https://api.telegram.org") as mock:
+        route = mock.post("/botTEST_TOKEN/sendMessage").mock(
+            side_effect=[
+                httpx.Response(200, json={"ok": True, "result": {"message_id": 1}}),
+                httpx.Response(200, json={"ok": True, "result": {"message_id": 2}}),
+            ]
+        )
+        await telegram.send_digest(text, topic_id="crypto_general", cfg=cfg)
+        first = route.calls[0].request.read().decode()
+        assert "<i>(1/" in first
+        assert "_(1/" not in first
+
+
+@pytest.mark.asyncio
 async def test_normal_5xx_still_retries_after_fix(cfg):
     """Pre-existing 5xx retry behavior must still work alongside the new fallback."""
     from aggregator.delivery import telegram
