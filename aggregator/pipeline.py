@@ -125,13 +125,36 @@ async def _enrich_reddit_items(items: list[Item]) -> list[Item]:
     return items
 
 
-def _score_and_dedup(items: list[Item], *, top_n: int, per_author_cap: int) -> list[Item]:
-    """Dedupe near-duplicates via upstream Jaccard-based dedupe_items, then
-    sort by engagement, then truncate to top_n.
+def _apply_per_author_cap(items: list[Item], cap: int) -> list[Item]:
+    """Keep at most `cap` items per (source, author) pair, preserving order.
 
-    Args:
-        per_author_cap: Reserved for a future weighted_rrf wiring; currently
-            unused (per-author cap not yet enforced).
+    Items with no author key (e.g., Polymarket markets) are uncapped — they
+    don't have a "voice" that could dominate. `cap <= 0` disables the cap.
+    """
+    if cap <= 0:
+        return items
+    counts: dict[tuple[str, str], int] = {}
+    out: list[Item] = []
+    dropped = 0
+    for it in items:
+        author = (it.metadata.get("author") or "").strip()
+        if not author:
+            out.append(it)
+            continue
+        key = (it.source, author)
+        if counts.get(key, 0) >= cap:
+            dropped += 1
+            continue
+        counts[key] = counts.get(key, 0) + 1
+        out.append(it)
+    if dropped:
+        log.info("per-author cap: dropped %d items (cap=%d)", dropped, cap)
+    return out
+
+
+def _score_and_dedup(items: list[Item], *, top_n: int, per_author_cap: int) -> list[Item]:
+    """Dedupe near-duplicates via upstream Jaccard-based dedupe_items, sort by
+    engagement, apply per-author cap, then truncate to top_n.
     """
     if not items:
         return []
@@ -148,7 +171,8 @@ def _score_and_dedup(items: list[Item], *, top_n: int, per_author_cap: int) -> l
     log.info("dedupe: %d -> %d items", len(items), len(deduped_items))
 
     ranked = sorted(deduped_items, key=_engagement_score, reverse=True)
-    return ranked[:top_n]
+    capped = _apply_per_author_cap(ranked, per_author_cap)
+    return capped[:top_n]
 
 
 async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,

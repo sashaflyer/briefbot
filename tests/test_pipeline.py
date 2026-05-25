@@ -359,3 +359,71 @@ async def test_enrich_reddit_items_respects_cap():
         await pipeline._enrich_reddit_items(items)
 
     assert call_count == pipeline._REDDIT_ENRICH_CAP
+
+
+def test_per_author_cap_limits_per_author():
+    from aggregator import pipeline
+    # 5 items from same author, 2 from another, 1 with no author.
+    items = []
+    for i in range(5):
+        items.append(Item(
+            id=f"r:hot_{i}", source="reddit",
+            title=f"Hot story {i}", url=f"https://reddit.com/hot_{i}",
+            text="x", created_at=datetime.now(timezone.utc),
+            engagement_raw={"upvotes": 1000 - i}, metadata={"author": "alice"},
+        ))
+    for i in range(2):
+        items.append(Item(
+            id=f"r:bob_{i}", source="reddit",
+            title=f"Bob story {i}", url=f"https://reddit.com/bob_{i}",
+            text="x", created_at=datetime.now(timezone.utc),
+            engagement_raw={"upvotes": 500}, metadata={"author": "bob"},
+        ))
+    items.append(Item(
+        id="pm:1", source="polymarket",
+        title="Market", url="https://polymarket.com/event/x",
+        text="x", created_at=datetime.now(timezone.utc),
+        engagement_raw={"volume": 10000}, metadata={},
+    ))
+
+    out = pipeline._apply_per_author_cap(items, cap=2)
+    by_author = {}
+    for it in out:
+        a = it.metadata.get("author") or "_no_author"
+        by_author[a] = by_author.get(a, 0) + 1
+    assert by_author["alice"] == 2  # capped from 5
+    assert by_author["bob"] == 2    # under cap, kept both
+    assert by_author["_no_author"] == 1  # polymarket uncapped
+
+
+def test_per_author_cap_disabled_when_zero():
+    from aggregator import pipeline
+    items = [
+        Item(id=f"r:{i}", source="reddit", title=f"t{i}",
+             url=f"u/{i}", text="x",
+             created_at=datetime.now(timezone.utc),
+             engagement_raw={}, metadata={"author": "alice"})
+        for i in range(10)
+    ]
+    assert len(pipeline._apply_per_author_cap(items, cap=0)) == 10
+    assert len(pipeline._apply_per_author_cap(items, cap=-1)) == 10
+
+
+def test_per_author_cap_preserves_engagement_order():
+    """Higher-engagement items within an author's quota win."""
+    from aggregator import pipeline
+    # Already sorted by engagement (highest first) — that's the contract.
+    items = [
+        Item(id="r:hi", source="reddit", title="hi", url="u/hi", text="x",
+             created_at=datetime.now(timezone.utc),
+             engagement_raw={"upvotes": 999}, metadata={"author": "alice"}),
+        Item(id="r:mid", source="reddit", title="mid", url="u/mid", text="x",
+             created_at=datetime.now(timezone.utc),
+             engagement_raw={"upvotes": 500}, metadata={"author": "alice"}),
+        Item(id="r:lo", source="reddit", title="lo", url="u/lo", text="x",
+             created_at=datetime.now(timezone.utc),
+             engagement_raw={"upvotes": 100}, metadata={"author": "alice"}),
+    ]
+    out = pipeline._apply_per_author_cap(items, cap=2)
+    kept_ids = [it.id for it in out]
+    assert kept_ids == ["r:hi", "r:mid"]  # lowest dropped
