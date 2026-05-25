@@ -8,14 +8,16 @@ from telegram.ext import Application, CommandHandler
 
 from aggregator.bot.commands.help import handle_help
 from aggregator.bot.commands.status import handle_status
+from aggregator.bot.commands.topics import handle_topics
 
 
 # Single source of truth for registered commands.
 # Each entry: (name, one-line description, handler).
 # /help renders this list. setMyCommands (Task 8) reads from it.
 COMMANDS = [
-    ("status", "Bot uptime, last runs, source health", handle_status),
-    ("help",   "List available commands",              handle_help),
+    ("status", "Bot uptime, last runs, source health",      handle_status),
+    ("topics", "List configured topics, schedule, sources", handle_topics),
+    ("help",   "List available commands",                   handle_help),
 ]
 
 
