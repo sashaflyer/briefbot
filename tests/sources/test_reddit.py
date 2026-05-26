@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -259,27 +260,42 @@ def test_fetch_subreddit_5xx_logs_status(caplog):
 
 def test_reddit_user_agent_requires_handle(monkeypatch):
     """Without REDDIT_USER_AGENT or REDDIT_OWNER_HANDLE, module import must fail."""
-    monkeypatch.delenv("REDDIT_USER_AGENT", raising=False)
-    monkeypatch.delenv("REDDIT_OWNER_HANDLE", raising=False)
     import importlib
     import aggregator.sources._ua as ua
+    # Snapshot directly: monkeypatch teardown runs AFTER our finally's
+    # importlib.reload, so the reload would see stale (cleared) env unless
+    # we restore explicitly here.
+    orig_ua = os.environ.get("REDDIT_USER_AGENT")
+    orig_handle = os.environ.get("REDDIT_OWNER_HANDLE")
     try:
+        monkeypatch.delenv("REDDIT_USER_AGENT", raising=False)
+        monkeypatch.delenv("REDDIT_OWNER_HANDLE", raising=False)
         with pytest.raises(RuntimeError, match="REDDIT_USER_AGENT"):
             importlib.reload(ua)
     finally:
-        monkeypatch.setenv("REDDIT_OWNER_HANDLE", "test-handle")
+        if orig_ua is not None:
+            os.environ["REDDIT_USER_AGENT"] = orig_ua
+        else:
+            os.environ.pop("REDDIT_USER_AGENT", None)
+        os.environ["REDDIT_OWNER_HANDLE"] = orig_handle or "test-handle"
         importlib.reload(ua)
 
 
 def test_reddit_user_agent_from_handle(monkeypatch):
     """REDDIT_OWNER_HANDLE composes a contact-bearing UA without REDDIT_USER_AGENT."""
-    monkeypatch.delenv("REDDIT_USER_AGENT", raising=False)
-    monkeypatch.setenv("REDDIT_OWNER_HANDLE", "alice")
     import importlib
     import aggregator.sources._ua as ua
+    orig_ua = os.environ.get("REDDIT_USER_AGENT")
+    orig_handle = os.environ.get("REDDIT_OWNER_HANDLE")
     try:
+        monkeypatch.delenv("REDDIT_USER_AGENT", raising=False)
+        monkeypatch.setenv("REDDIT_OWNER_HANDLE", "alice")
         importlib.reload(ua)
         assert "/u/alice" in ua.USER_AGENT
     finally:
-        monkeypatch.setenv("REDDIT_OWNER_HANDLE", "test-handle")
+        if orig_ua is not None:
+            os.environ["REDDIT_USER_AGENT"] = orig_ua
+        else:
+            os.environ.pop("REDDIT_USER_AGENT", None)
+        os.environ["REDDIT_OWNER_HANDLE"] = orig_handle or "test-handle"
         importlib.reload(ua)
