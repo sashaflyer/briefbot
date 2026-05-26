@@ -162,14 +162,16 @@ def _apply_per_author_cap(items: list[Item], cap: int) -> list[Item]:
 
 
 def _score_and_dedup(items: list[Item], *, top_n: int, per_author_cap: int) -> list[Item]:
-    """Dedupe near-duplicates via upstream Jaccard-based dedupe_items, sort by
-    engagement, apply per-author cap, then truncate to top_n.
+    """Sort by engagement, then dedupe near-duplicates via upstream Jaccard-based
+    dedupe_items (which keeps the first occurrence — so the higher-engagement
+    variant wins the slot), then apply per-author cap and truncate to top_n.
     """
     if not items:
         return []
 
-    by_id = {item.id: item for item in items}
-    source_items = [_item_to_source_item(it) for it in items]
+    ranked_first = sorted(items, key=_engagement_score, reverse=True)
+    by_id = {item.id: item for item in ranked_first}
+    source_items = [_item_to_source_item(it) for it in ranked_first]
     try:
         deduped = _dedupe.dedupe_items(source_items, threshold=0.7)
     except Exception:
@@ -179,8 +181,7 @@ def _score_and_dedup(items: list[Item], *, top_n: int, per_author_cap: int) -> l
     deduped_items = [by_id[si.item_id] for si in deduped if si.item_id in by_id]
     log.info("dedupe: %d -> %d items", len(items), len(deduped_items))
 
-    ranked = sorted(deduped_items, key=_engagement_score, reverse=True)
-    capped = _apply_per_author_cap(ranked, per_author_cap)
+    capped = _apply_per_author_cap(deduped_items, per_author_cap)
     return capped[:top_n]
 
 

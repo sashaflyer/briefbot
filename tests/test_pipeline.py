@@ -136,6 +136,24 @@ def test_score_and_dedup_handles_empty():
     assert pipeline._score_and_dedup([], top_n=10, per_author_cap=3) == []
 
 
+def test_dedupe_keeps_higher_engagement_variant():
+    """When two near-duplicates exist, the higher-engagement one wins the slot."""
+    from aggregator import pipeline
+    items = [
+        Item(id="a", source="reddit", title="Bitcoin closed above 200k",
+             url="https://a", text="", created_at=datetime.now(timezone.utc),
+             engagement_raw={"score": 5, "upvotes": 5, "comments": 0},
+             metadata={}),
+        Item(id="b", source="reddit", title="Bitcoin closed above 200k!",
+             url="https://b", text="", created_at=datetime.now(timezone.utc),
+             engagement_raw={"score": 5000, "upvotes": 5000, "comments": 0},
+             metadata={}),
+    ]
+    out = pipeline._score_and_dedup(items, top_n=10, per_author_cap=0)
+    assert len(out) == 1
+    assert out[0].id == "b"
+
+
 # Truly different headlines/bodies (no overlap) to bypass Jaccard near-dup
 # collapsing in pipeline._score_and_dedup. Indexed by an integer key 0..N-1.
 _DISTINCT_FIXTURES = [
