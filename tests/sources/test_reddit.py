@@ -157,6 +157,45 @@ def test_to_item_uses_reddit_id_when_present():
     assert item.id == "reddit:abc123"
 
 
+def test_fetch_subreddit_drops_stickied_and_removed():
+    import json as _json
+    from unittest.mock import patch
+
+    from aggregator.sources.reddit import _fetch_subreddit
+
+    fake = {"data": {"children": [
+        {"data": {"id": "a", "title": "real", "stickied": False,
+                  "removed_by_category": None, "selftext": "",
+                  "subreddit": "x", "permalink": "/r/x/comments/a/",
+                  "url": "https://x/", "score": 1, "num_comments": 0,
+                  "author": "u", "created_utc": 0}},
+        {"data": {"id": "b", "title": "sticky", "stickied": True,
+                  "removed_by_category": None, "selftext": "",
+                  "subreddit": "x", "permalink": "/r/x/comments/b/",
+                  "url": "https://x/", "score": 1, "num_comments": 0,
+                  "author": "u", "created_utc": 0}},
+        {"data": {"id": "c", "title": "removed", "stickied": False,
+                  "removed_by_category": "moderator",
+                  "selftext": "[removed]",
+                  "subreddit": "x", "permalink": "/r/x/comments/c/",
+                  "url": "https://x/", "score": 1, "num_comments": 0,
+                  "author": "u", "created_utc": 0}},
+    ]}}
+
+    class _R:
+        def read(self):
+            return _json.dumps(fake).encode()
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    with patch("urllib.request.urlopen", return_value=_R()):
+        posts = _fetch_subreddit("x", limit=10)
+    ids = [p["reddit_id"] for p in posts]
+    assert ids == ["a"]
+
+
 def test_to_item_unescapes_html_entities():
     from aggregator.sources.reddit import _to_item
     raw = {

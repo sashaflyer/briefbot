@@ -85,6 +85,14 @@ def _fetch_subreddit(sub: str, limit: int = 25) -> list[dict[str, Any]]:
     posts: list[dict[str, Any]] = []
     for child in raw.get("data", {}).get("children", []):
         p = child.get("data", {})
+        # Drop stickied (AutoModerator dailies, mod announcements) and posts
+        # that listings still surface after removal/deletion.
+        if p.get("stickied"):
+            continue
+        if p.get("removed_by_category"):
+            continue
+        if (p.get("selftext") or "").strip() in {"[removed]", "[deleted]"}:
+            continue
         permalink = p.get("permalink") or ""
         url = f"https://www.reddit.com{permalink}" if permalink else (p.get("url") or "")
         posts.append({
