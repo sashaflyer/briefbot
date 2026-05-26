@@ -67,12 +67,21 @@ def _iso(at: datetime) -> str:
     return at.isoformat()
 
 
-PROJECT_SCHEMA_VERSION = 1
+PROJECT_SCHEMA_VERSION = 2
 
 _MIGRATIONS: dict[int, list[str]] = {
     # v1 is implicit: the contents of _ADDED_SCHEMA. We just record version=1
     # after init_schema runs for existing or fresh DBs. Migrations 2+ add new
     # statements applied in version order.
+    2: [
+        # Dedupe before adding UNIQUE: keep the earliest row per (topic_id, url).
+        "DELETE FROM delivered_findings WHERE id NOT IN ("
+        " SELECT MIN(id) FROM delivered_findings GROUP BY topic_id, url"
+        ")",
+        "DROP INDEX IF EXISTS idx_delivered_findings_topic_url",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_delivered_findings_topic_url "
+        "ON delivered_findings(topic_id, url)",
+    ],
 }
 
 
@@ -347,7 +356,7 @@ class Storage:
                 if not url:
                     continue
                 conn.execute(
-                    """INSERT INTO delivered_findings
+                    """INSERT OR IGNORE INTO delivered_findings
                            (topic_id, item_id, url, title, delivered_at)
                        VALUES (?, ?, ?, ?, ?)""",
                     (topic_id, str(it.get("id", "")), url, it.get("title") or "", ts),

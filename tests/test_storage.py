@@ -23,6 +23,48 @@ def test_project_schema_version_recorded(tmp_path):
     assert v == PROJECT_SCHEMA_VERSION
 
 
+def test_record_delivered_items_is_idempotent(tmp_path):
+    s = Storage(str(tmp_path / "test.db"))
+    s.init_schema()
+    items = [{"url": "https://x/a", "title": "t", "id": "x:1"}]
+    now = datetime.now(timezone.utc)
+    s.record_delivered_items(topic_id="t1", items=items, at=now)
+    s.record_delivered_items(topic_id="t1", items=items, at=now)
+    urls = s.recently_delivered_urls(topic_id="t1", since=now - timedelta(seconds=1))
+    assert urls == {"https://x/a"}
+    with sqlite3.connect(s.path) as conn:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM delivered_findings WHERE topic_id=?", ("t1",)
+        ).fetchone()[0]
+    assert n == 1
+
+
+def test_migration_from_v1_to_v2_adds_unique_index(tmp_path):
+    db = tmp_path / "t.db"
+    # Seed a v1 DB: project_schema_version=1, no unique index
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE project_schema_version (version INTEGER);
+        INSERT INTO project_schema_version VALUES (1);
+        CREATE TABLE delivered_findings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            topic_id TEXT NOT NULL, item_id TEXT NOT NULL,
+            url TEXT NOT NULL, title TEXT,
+            delivered_at TIMESTAMP NOT NULL
+        );
+    """)
+    conn.commit()
+    conn.close()
+    s = Storage(str(db))
+    s.init_schema()
+    with sqlite3.connect(s.path) as conn:
+        idx = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' "
+            "AND name='uq_delivered_findings_topic_url'"
+        ).fetchone()
+    assert idx is not None
+
+
 @pytest.fixture
 def storage(tmp_path):
     db = tmp_path / "test.db"
