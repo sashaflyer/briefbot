@@ -2,6 +2,27 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from aggregator.__main__ import _require_env, _require_env_int
+
+
+def test_require_env_missing_var_message(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    with pytest.raises(SystemExit) as exc:
+        _require_env("TELEGRAM_BOT_TOKEN")
+    assert "TELEGRAM_BOT_TOKEN" in str(exc.value)
+
+
+def test_require_env_present(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "abc")
+    assert _require_env("TELEGRAM_BOT_TOKEN") == "abc"
+
+
+def test_require_env_int_invalid(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "not-a-number")
+    with pytest.raises(SystemExit) as exc:
+        _require_env_int("TELEGRAM_CHAT_ID")
+    assert "TELEGRAM_CHAT_ID" in str(exc.value)
+
 
 @pytest.mark.asyncio
 async def test_cli_oneshot_runs_pipeline(tmp_path, monkeypatch):
