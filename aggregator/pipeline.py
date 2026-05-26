@@ -319,7 +319,8 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
     if not ranked:
         log.info("no new items to deliver for %s; sending heartbeat", topic_id)
         message_text = (
-            f"news-aggregator: no new items for {topic_id} "
+            f"news-aggregator: no new items for "
+            f"<code>{html.escape(topic_id)}</code> "
             f"in the last {cfg.scoring.dedup_window_days} days "
             f"(fetched {fetched}, all previously delivered or filtered)"
         )

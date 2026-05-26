@@ -333,6 +333,44 @@ async def test_empty_digest_with_failed_send_records_error(cfg, storage):
 
 
 @pytest.mark.asyncio
+async def test_heartbeat_html_escapes_topic_id(cfg, storage):
+    """The heartbeat path html-escapes topic_id so '<weird>' becomes safe."""
+    from aggregator import pipeline
+    from aggregator.config import TopicConfig
+
+    weird_id = "<weird>"
+    cfg.topics[weird_id] = TopicConfig(
+        kind="general",
+        sources=["reddit"],
+        subreddits=["test"],
+        polymarket_tags=[],
+        prompt_template="general_crypto.md",
+        top_n=5,
+        schedule="0 8 * * *",
+    )
+
+    # First run delivers an item so the second run sees it as "previously delivered".
+    item = make_distinct_item("reddit", 0)
+    with patch.object(pipeline, "_fetch_all", new=AsyncMock(
+        return_value={"reddit": [item]}
+    )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="D1"
+    )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
+        await pipeline.run_digest(weird_id, cfg, storage, trigger="scheduled")
+
+    # Second run with same item -> empty after filter -> heartbeat path.
+    fake_send = AsyncMock(return_value=[42])
+    with patch.object(pipeline, "_fetch_all", new=AsyncMock(
+        return_value={"reddit": [make_distinct_item("reddit", 0)]}
+    )), patch.object(pipeline, "send_digest", new=fake_send):
+        await pipeline.run_digest(weird_id, cfg, storage, trigger="scheduled")
+
+    fake_send.assert_awaited_once()
+    sent = fake_send.await_args.args[0]
+    assert "&lt;weird&gt;" in sent
+    assert "<weird>" not in sent
+
+
+@pytest.mark.asyncio
 async def test_enrich_reddit_items_adds_comments_to_metadata():
     """Verify Reddit items get top_comments+comment_insights in metadata."""
     from unittest.mock import patch
