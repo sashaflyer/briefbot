@@ -123,13 +123,14 @@ class PolymarketSource(Source):
         tags = queries.get("polymarket_tags") or []
         symbols = queries.get("symbols") or []
 
-        if not tags and not symbols:
+        # Tags are operator-explicit. Topics without polymarket_tags skip
+        # Polymarket entirely rather than silently routing to a default tag.
+        if not tags:
+            log.info(
+                "polymarket: no polymarket_tags configured; skipping "
+                "(symbols=%r)", symbols,
+            )
             return []
-
-        # When only symbols are provided, fall back to the broad "crypto" tag
-        # rather than firing one upstream call per symbol.
-        if not tags and symbols:
-            tags = ["crypto"]
 
         # Concurrent fetch per tag; one tag's failure shouldn't kill the rest.
         results = await asyncio.gather(

@@ -25,9 +25,25 @@ async def test_fetch_with_symbols_filters_by_question():
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     with patch("aggregator.sources.polymarket._fetch_by_tag", return_value=fixture):
         src = PolymarketSource()
-        items = await src.fetch({"symbols": ["BTC"]})
+        # Caller must opt into polymarket_tags explicitly; symbols alone no
+        # longer back-fills the broad 'crypto' tag (audit M8).
+        items = await src.fetch({
+            "polymarket_tags": ["crypto"],
+            "symbols": ["BTC"],
+        })
     for it in items:
         assert "BTC" in it.title.upper() or "BTC" in it.text.upper()
+
+
+@pytest.mark.asyncio
+async def test_polymarket_skips_when_no_tags_configured():
+    """Symbols alone must not implicitly back-fill the 'crypto' tag (audit M8)."""
+    from aggregator.sources.polymarket import PolymarketSource
+    with patch("aggregator.sources.polymarket._fetch_by_tag") as mock_fetch:
+        src = PolymarketSource()
+        items = await src.fetch({"polymarket_tags": [], "symbols": ["SOL"]})
+    assert items == []
+    mock_fetch.assert_not_called()
 
 
 @pytest.mark.asyncio
