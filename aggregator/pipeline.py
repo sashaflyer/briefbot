@@ -25,6 +25,9 @@ from aggregator.vendor.last30days import schema as _schema
 # Cap on how many Reddit items get enriched per run (extra HTTP call each).
 # Higher = better digest quality, more risk of hitting Reddit's anonymous rate limit.
 _REDDIT_ENRICH_CAP = 10
+# Concurrent enrichment slots. Keep small — Reddit's anonymous rate limit is
+# strict and we don't want to earn a ban from a tight burst.
+_REDDIT_ENRICH_CONCURRENCY = 3
 # Comment trimming applied after upstream enrichment fills the field.
 _REDDIT_TOP_COMMENTS_PER_ITEM = 3
 _REDDIT_COMMENT_EXCERPT_CHARS = 150
@@ -89,30 +92,38 @@ async def _enrich_reddit_items(items: list[Item]) -> list[Item]:
 
     Non-Reddit items pass through untouched. Failures (network, rate limit,
     parse) are logged but don't stop the run. Enrichment is capped to
-    _REDDIT_ENRICH_CAP items to keep the per-run HTTP budget bounded.
+    _REDDIT_ENRICH_CAP items to keep the per-run HTTP budget bounded, and
+    runs at most _REDDIT_ENRICH_CONCURRENCY HTTP calls in parallel.
     """
-    enriched_count = 0
-    for item in items:
-        if item.source != "reddit":
-            continue
-        if enriched_count >= _REDDIT_ENRICH_CAP:
-            break
-        if not item.url:
-            continue
-        try:
-            result = await asyncio.to_thread(
-                _reddit_enrich.enrich_reddit_item, {"url": item.url}
-            )
-        except Exception as e:  # noqa: BLE001
-            log.warning("reddit enrich failed for %s: %s", item.url, e)
-            # Upstream raises httpx.HTTPStatusError on 429; the previous check
-            # on `"RateLimit" in type(e).__name__` never matched. On a real
-            # rate-limit, abort the loop so we don't earn a longer ban.
-            status = getattr(getattr(e, "response", None), "status_code", None)
-            if status == 429:
-                log.warning("reddit rate-limited; aborting enrichment for remaining items")
-                break
-            continue
+    candidates = [
+        it for it in items if it.source == "reddit" and it.url
+    ][:_REDDIT_ENRICH_CAP]
+    if not candidates:
+        return items
+
+    sem = asyncio.Semaphore(_REDDIT_ENRICH_CONCURRENCY)
+    abort_rest = False
+
+    async def _one(item: Item) -> bool:
+        nonlocal abort_rest
+        if abort_rest:
+            return False
+        async with sem:
+            if abort_rest:
+                return False
+            try:
+                result = await asyncio.to_thread(
+                    _reddit_enrich.enrich_reddit_item, {"url": item.url}
+                )
+            except Exception as e:  # noqa: BLE001
+                log.warning("reddit enrich failed for %s: %s", item.url, e)
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status == 429:
+                    log.warning(
+                        "reddit rate-limited; aborting enrichment for remaining items"
+                    )
+                    abort_rest = True
+                return False
 
         raw_comments = (result.get("top_comments") or [])[:_REDDIT_TOP_COMMENTS_PER_ITEM]
         trimmed = [
@@ -124,11 +135,12 @@ async def _enrich_reddit_items(items: list[Item]) -> list[Item]:
             for c in raw_comments
         ]
         insights = (result.get("comment_insights") or [])[:5]
-
         item.metadata["top_comments"] = trimmed
         item.metadata["comment_insights"] = insights
-        enriched_count += 1
+        return True
 
+    results = await asyncio.gather(*(_one(it) for it in candidates))
+    enriched_count = sum(1 for r in results if r)
     if enriched_count:
         log.info("enriched %d reddit items with top comments", enriched_count)
     return items

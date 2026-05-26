@@ -481,6 +481,36 @@ async def test_enrich_reddit_items_continues_on_non_429():
 
 
 @pytest.mark.asyncio
+async def test_enrich_reddit_items_runs_with_bounded_concurrency():
+    """Enrichment runs in parallel but caps in-flight calls at the configured
+    concurrency. Verifies behavior via a thread-safe in-flight counter."""
+    import threading
+    import time as _time
+    from unittest.mock import patch
+    from aggregator import pipeline
+
+    lock = threading.Lock()
+    state = {"in_flight": 0, "peak": 0}
+
+    def slow_enrich(item):
+        with lock:
+            state["in_flight"] += 1
+            state["peak"] = max(state["peak"], state["in_flight"])
+        _time.sleep(0.05)
+        with lock:
+            state["in_flight"] -= 1
+        return {"url": item["url"], "top_comments": [], "comment_insights": []}
+
+    items = [make_distinct_item("reddit", i) for i in range(6)]
+    with patch.object(pipeline._reddit_enrich, "enrich_reddit_item",
+                      side_effect=slow_enrich):
+        await pipeline._enrich_reddit_items(items)
+
+    assert state["peak"] >= 2  # ran some calls concurrently
+    assert state["peak"] <= pipeline._REDDIT_ENRICH_CONCURRENCY
+
+
+@pytest.mark.asyncio
 async def test_enrich_reddit_items_respects_cap():
     """No more than _REDDIT_ENRICH_CAP items get enriched per run."""
     from unittest.mock import patch
