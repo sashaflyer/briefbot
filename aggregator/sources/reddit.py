@@ -10,6 +10,7 @@ indirections so tests can mock without touching the network.
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
 import os
@@ -162,9 +163,9 @@ def _to_item(raw: dict[str, Any]) -> Item:
     return Item(
         id=f"reddit:{raw_id}",
         source="reddit",
-        title=str(raw.get("title", "")).strip(),
+        title=html.unescape(str(raw.get("title", "")).strip()),
         url=url,
-        text=str(raw.get("selftext", "")),
+        text=html.unescape(str(raw.get("selftext", ""))),
         created_at=_parse_created_at(raw),
         engagement_raw={
             "score": score,

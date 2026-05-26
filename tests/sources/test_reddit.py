@@ -157,6 +157,26 @@ def test_to_item_uses_reddit_id_when_present():
     assert item.id == "reddit:abc123"
 
 
+def test_to_item_unescapes_html_entities():
+    from aggregator.sources.reddit import _to_item
+    raw = {
+        "reddit_id": "abc",
+        "title": "Tether&#39;s Q1 attestation",
+        "subreddit": "CryptoCurrency",
+        "url": "https://x.example/",
+        "score": 1,
+        "num_comments": 0,
+        "author": "u",
+        "created_utc": 0,
+        "selftext": "Don&amp;t panic",
+        "engagement": {"score": 1, "num_comments": 0},
+    }
+    item = _to_item(raw)
+    assert "'" in item.title
+    assert "&#39;" not in item.title
+    assert "&amp;" not in item.text
+
+
 def test_fetch_subreddit_429_logs_retry_after_and_returns_empty(caplog):
     import io
     import urllib.error
