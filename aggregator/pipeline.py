@@ -134,6 +134,36 @@ async def _enrich_reddit_items(items: list[Item]) -> list[Item]:
     return items
 
 
+def _cap_per_symbol(
+    items: list[Item], symbols: list[str], per_symbol_top_n: int
+) -> list[Item]:
+    """Group items by best-matching canonical ticker (case-insensitive
+    word-boundary in title or body); keep at most ``per_symbol_top_n`` per
+    ticker. Off-topic items (no matching ticker) are dropped.
+
+    The first symbol in `symbols` to match an item wins, so callers should
+    order `symbols` by priority. Within each bucket, input order is preserved
+    (so a pre-ranked input yields a pre-ranked output per ticker).
+    """
+    import re as _re
+    buckets: dict[str, list[Item]] = {sym: [] for sym in symbols}
+    for it in items:
+        text = f"{it.title} {it.text or ''}".lower()
+        matched = None
+        for sym in symbols:
+            if _re.search(rf"\b{_re.escape(sym.lower())}\b", text):
+                matched = sym
+                break
+        if matched is None:
+            continue
+        if len(buckets[matched]) < per_symbol_top_n:
+            buckets[matched].append(it)
+    out: list[Item] = []
+    for sym in symbols:
+        out.extend(buckets[sym])
+    return out
+
+
 def _apply_per_author_cap(items: list[Item], cap: int) -> list[Item]:
     """Keep at most `cap` items per (source, author) pair, preserving order.
 
@@ -257,12 +287,20 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
                      dropped, len(items))
 
     if topic.kind == "general":
-        top_n = topic.top_n  # type: ignore[assignment]
+        ranked = _score_and_dedup(
+            items, top_n=topic.top_n,  # type: ignore[arg-type]
+            per_author_cap=cfg.scoring.per_author_cap,
+        )
     else:
-        # Cap is per *coin* (canonical ticker), not per alias query.
-        top_n = topic.per_symbol_top_n * len(topic.canonical_symbols)  # type: ignore[operator]
-
-    ranked = _score_and_dedup(items, top_n=top_n, per_author_cap=cfg.scoring.per_author_cap)
+        # Watchlist: rank with generous headroom so dedupe+per-author-cap don't
+        # starve the per-symbol bucketing step that follows.
+        pre_cap = topic.per_symbol_top_n * len(topic.canonical_symbols) * 4  # type: ignore[operator]
+        ranked = _score_and_dedup(
+            items, top_n=pre_cap, per_author_cap=cfg.scoring.per_author_cap,
+        )
+        ranked = _cap_per_symbol(
+            ranked, topic.canonical_symbols, topic.per_symbol_top_n,  # type: ignore[arg-type]
+        )
 
     # Enrich top Reddit items with comments so the LLM has the actual context.
     ranked = await _enrich_reddit_items(ranked)

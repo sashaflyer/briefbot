@@ -136,6 +136,21 @@ def test_score_and_dedup_handles_empty():
     assert pipeline._score_and_dedup([], top_n=10, per_author_cap=3) == []
 
 
+def test_cap_per_symbol_enforces_per_ticker_limit():
+    from aggregator import pipeline
+    now = datetime.now(timezone.utc)
+    def _mk(title, id):
+        return Item(id=id, source="reddit", title=title, url=f"https://x/{id}",
+                    text="", created_at=now, engagement_raw={}, metadata={})
+    items = [_mk(f"SOL news {i}", f"a{i}") for i in range(30)] + \
+            [_mk("AVAX rises", "b1")]
+    out = pipeline._cap_per_symbol(items, symbols=["SOL", "SUI", "AVAX"], per_symbol_top_n=5)
+    sol = [it for it in out if "SOL" in it.title]
+    avax = [it for it in out if "AVAX" in it.title]
+    assert len(sol) == 5
+    assert len(avax) == 1
+
+
 def test_dedupe_keeps_higher_engagement_variant():
     """When two near-duplicates exist, the higher-engagement one wins the slot."""
     from aggregator import pipeline
