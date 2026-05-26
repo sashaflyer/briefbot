@@ -99,6 +99,27 @@ async def test_run_digest_all_sources_fail(cfg, storage):
     assert storage.get_source_health("polymarket")["consecutive_failures"] == 1
 
 
+@pytest.mark.asyncio
+async def test_all_sources_fail_sends_failure_heartbeat(cfg, storage):
+    from aggregator import pipeline
+
+    async def fake_fetch_all(*a, **kw):
+        return {"reddit": RuntimeError("boom"),
+                "polymarket": RuntimeError("boom2")}
+
+    fake_send = AsyncMock(return_value=[1])
+    with patch.object(pipeline, "_fetch_all", side_effect=fake_fetch_all
+    ), patch.object(pipeline, "send_digest", new=fake_send):
+        result = await pipeline.run_digest("crypto_general", cfg, storage,
+                                           trigger="scheduled")
+
+    assert result.status == "error"
+    fake_send.assert_awaited_once()
+    sent_text = fake_send.await_args.args[0]
+    assert "all sources failed" in sent_text.lower()
+    assert "crypto_general" in sent_text
+
+
 def test_score_and_dedup_removes_near_duplicates():
     from aggregator import pipeline
     from datetime import datetime, timezone

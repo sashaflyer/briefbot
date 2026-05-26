@@ -253,6 +253,15 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
 
     fetched = len(items)
     if ok_count == 0:
+        fallback_msg = (
+            f"news-aggregator: all sources failed for topic "
+            f"<code>{html.escape(topic_id)}</code>. "
+            f"Check source_health and logs."
+        )
+        try:
+            await send_digest(fallback_msg, topic_id=topic_id, cfg=cfg)
+        except Exception:
+            log.exception("failed to send all-sources-failed heartbeat")
         storage.finish_run(run_id, status="error", items_fetched=0, items_delivered=0,
                            error_message="all sources failed",
                            at=datetime.now(timezone.utc))
