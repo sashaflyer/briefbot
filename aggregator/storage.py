@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from aggregator.url_norm import canonicalize
 from aggregator.vendor.last30days import store as upstream_store
 
 if TYPE_CHECKING:
@@ -67,7 +68,7 @@ def _iso(at: datetime) -> str:
     return at.isoformat()
 
 
-PROJECT_SCHEMA_VERSION = 2
+PROJECT_SCHEMA_VERSION = 3
 
 _MIGRATIONS: dict[int, list[str]] = {
     # v1 is implicit: the contents of _ADDED_SCHEMA. We just record version=1
@@ -82,6 +83,8 @@ _MIGRATIONS: dict[int, list[str]] = {
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_delivered_findings_topic_url "
         "ON delivered_findings(topic_id, url)",
     ],
+    # v3 is handled in Python by _migrate() (canonicalize existing urls).
+    3: [],
 }
 
 
@@ -99,6 +102,32 @@ def _migrate(conn: sqlite3.Connection) -> None:
         if v > current:
             for stmt in _MIGRATIONS[v]:
                 conn.execute(stmt)
+            if v == 3:
+                # Backfill: canonicalize existing URLs in place. UNIQUE index
+                # may collide if two rows canonicalize to the same value;
+                # INSERT OR IGNORE pattern doesn't apply to UPDATE, so we
+                # collapse duplicates manually.
+                rows = conn.execute(
+                    "SELECT id, topic_id, url FROM delivered_findings"
+                ).fetchall()
+                seen: dict[tuple[str, str], int] = {}
+                for row_id, topic_id, url in rows:
+                    new = canonicalize(url)
+                    key = (topic_id, new)
+                    if key in seen:
+                        # Another row already holds the canonical form here;
+                        # drop this duplicate to keep the UNIQUE index happy.
+                        conn.execute(
+                            "DELETE FROM delivered_findings WHERE id=?",
+                            (row_id,),
+                        )
+                        continue
+                    seen[key] = row_id
+                    if new != url:
+                        conn.execute(
+                            "UPDATE delivered_findings SET url=? WHERE id=?",
+                            (new, row_id),
+                        )
             conn.execute("UPDATE project_schema_version SET version = ?", (v,))
             current = v
     conn.commit()
@@ -355,6 +384,7 @@ class Storage:
                 url = (it.get("url") or "").strip()
                 if not url:
                     continue
+                url = canonicalize(url)
                 conn.execute(
                     """INSERT OR IGNORE INTO delivered_findings
                            (topic_id, item_id, url, title, delivered_at)
