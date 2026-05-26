@@ -155,3 +155,31 @@ def test_to_item_uses_reddit_id_when_present():
            "engagement": {"score": 1, "num_comments": 0}}
     item = _to_item(raw)
     assert item.id == "reddit:abc123"
+
+
+def test_reddit_user_agent_requires_handle(monkeypatch):
+    """Without REDDIT_USER_AGENT or REDDIT_OWNER_HANDLE, module import must fail."""
+    monkeypatch.delenv("REDDIT_USER_AGENT", raising=False)
+    monkeypatch.delenv("REDDIT_OWNER_HANDLE", raising=False)
+    import importlib
+    import aggregator.sources.reddit as r
+    try:
+        with pytest.raises(RuntimeError, match="REDDIT_USER_AGENT"):
+            importlib.reload(r)
+    finally:
+        monkeypatch.setenv("REDDIT_OWNER_HANDLE", "test-handle")
+        importlib.reload(r)
+
+
+def test_reddit_user_agent_from_handle(monkeypatch):
+    """REDDIT_OWNER_HANDLE composes a contact-bearing UA without REDDIT_USER_AGENT."""
+    monkeypatch.delenv("REDDIT_USER_AGENT", raising=False)
+    monkeypatch.setenv("REDDIT_OWNER_HANDLE", "alice")
+    import importlib
+    import aggregator.sources.reddit as r
+    try:
+        importlib.reload(r)
+        assert "/u/alice" in r.USER_AGENT
+    finally:
+        monkeypatch.setenv("REDDIT_OWNER_HANDLE", "test-handle")
+        importlib.reload(r)

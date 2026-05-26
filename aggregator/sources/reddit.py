@@ -25,9 +25,30 @@ from aggregator.vendor.last30days import reddit_public
 log = logging.getLogger(__name__)
 
 
-def _user_agent() -> str:
-    """Reddit explicitly blocks generic UAs. Honor REDDIT_USER_AGENT from .env."""
-    return os.environ.get("REDDIT_USER_AGENT", "news-aggregator/0.1")
+_REDDIT_OWNER_HANDLE = os.environ.get("REDDIT_OWNER_HANDLE", "").strip()
+
+
+def _default_user_agent() -> str:
+    """Compose a contact-bearing UA from REDDIT_OWNER_HANDLE.
+
+    Reddit's API policy rejects/throttles generic UAs. We refuse to start
+    unless REDDIT_USER_AGENT is set explicitly or REDDIT_OWNER_HANDLE
+    identifies a contact handle we can compose into a UA.
+    """
+    if not _REDDIT_OWNER_HANDLE:
+        raise RuntimeError(
+            "Reddit requires a contact-bearing User-Agent. "
+            "Set REDDIT_USER_AGENT to a fully-formed UA string, or set "
+            "REDDIT_OWNER_HANDLE to your reddit username (no leading 'u/') "
+            "and we'll compose one."
+        )
+    return (
+        f"news-aggregator/0.1 by /u/{_REDDIT_OWNER_HANDLE} "
+        f"(contact via reddit dm)"
+    )
+
+
+USER_AGENT = os.environ.get("REDDIT_USER_AGENT", "").strip() or _default_user_agent()
 
 
 def _fetch_subreddit(sub: str, limit: int = 25) -> list[dict[str, Any]]:
@@ -38,7 +59,7 @@ def _fetch_subreddit(sub: str, limit: int = 25) -> list[dict[str, Any]]:
     """
     capped = max(1, min(int(limit), 100))
     url = f"https://www.reddit.com/r/{sub}/hot.json?limit={capped}"
-    req = urllib.request.Request(url, headers={"User-Agent": _user_agent()})
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             raw = json.loads(resp.read())
