@@ -34,7 +34,10 @@ ReadWritePaths=/var/lib/news-aggregator
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-RestrictAddressFamilies=AF_INET AF_INET6
+# AF_UNIX required for systemd sd_notify (Type=notify). Without it, sd_notify
+# fails with EAFNOSUPPORT and READY=1 never arrives, so systemd terminates the
+# service after TimeoutStartSec. AF_INET/AF_INET6 cover all our outbound HTTPS.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
