@@ -469,3 +469,82 @@ def test_cap_per_symbol_matches_alias_text():
     alias_map = {"avax": "AVAX", "avalanche": "AVAX"}
     out = _cap_per_symbol([it], ["AVAX"], alias_map, 5)
     assert out == [it]
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: run_digest for crypto_watchlist exercises rss_symbol_feeds wiring
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_run_digest_watchlist_rss_symbol_feeds(cfg, storage):
+    """run_digest for crypto_watchlist must call _fetch_feed with the configured
+    per-coin tag-feed URLs (rss_symbol_feeds) and deliver tagged items.
+
+    Failure mode caught: if the key 'rss_symbol_feeds' were misspelled in
+    pipeline.run_digest (e.g. 'rss_symbl_feeds'), RssSource.fetch would see an
+    empty symbol_feeds dict, _fetch_feed would never be called for the tag-feed
+    URLs, and this test would fail on the assert_any_call checks AND on
+    items_delivered == 0.
+    """
+    import time
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from aggregator import pipeline
+
+    # A recent published_parsed tuple (_to_item unpacks sp[:6]).
+    _recent = (2026, 5, 29, 10, 0, 0)
+
+    # Feed URL -> list of raw entry dicts (shape RssSource._to_item expects).
+    _FEED_ENTRIES: dict[str, list[dict]] = {
+        "https://cointelegraph.com/rss/tag/solana": [
+            {"id": "sol-1", "title": "Solana upgrade ships",
+             "url": "https://ct.com/sol-1", "summary": "A major Solana upgrade.",
+             "published_parsed": _recent},
+        ],
+        "https://cointelegraph.com/rss/tag/sui": [
+            {"id": "sui-1", "title": "Sui DeFi milestone",
+             "url": "https://ct.com/sui-1", "summary": "Sui hits TVL record.",
+             "published_parsed": _recent},
+        ],
+        "https://cointelegraph.com/rss/tag/avalanche": [
+            {"id": "avax-1", "title": "Avalanche subnet expansion",
+             "url": "https://ct.com/avax-1", "summary": "New subnet launches.",
+             "published_parsed": _recent},
+        ],
+        "https://cointelegraph.com/rss/tag/arbitrum": [
+            {"id": "arb-1", "title": "Arbitrum DAO vote passes",
+             "url": "https://ct.com/arb-1", "summary": "ARB governance milestone.",
+             "published_parsed": _recent},
+        ],
+    }
+
+    def fake_fetch_feed(url: str) -> list[dict]:
+        return _FEED_ENTRIES.get(url, [])
+
+    # Stub out polymarket and hackernews so only RssSource runs for real.
+    stub_source = MagicMock()
+    stub_source.fetch = AsyncMock(return_value=[])
+
+    with patch("aggregator.sources.rss._fetch_feed", side_effect=fake_fetch_feed) as mock_ff, \
+         patch.dict(pipeline.SOURCES, {"polymarket": stub_source, "hackernews": stub_source}), \
+         patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="WATCHLIST DIGEST")), \
+         patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[42])):
+        result = await pipeline.run_digest("crypto_watchlist", cfg, storage, trigger="scheduled")
+
+    # Run must succeed.
+    assert result.status == "ok"
+
+    # _fetch_feed must have been called with the SOL and ARB tag-feed URLs.
+    # This directly verifies the rss_symbol_feeds key is spelled correctly in
+    # pipeline.run_digest and that RssSource.fetch receives and processes it.
+    called_urls = {call.args[0] for call in mock_ff.call_args_list}
+    assert "https://cointelegraph.com/rss/tag/solana" in called_urls, (
+        "SOL tag feed was not fetched — rss_symbol_feeds wiring likely broken"
+    )
+    assert "https://cointelegraph.com/rss/tag/arbitrum" in called_urls, (
+        "ARB tag feed was not fetched — rss_symbol_feeds wiring likely broken"
+    )
+
+    # Items from the per-coin feeds must have flowed through to delivery.
+    assert result.items_delivered >= 2, (
+        f"Expected at least SOL+ARB items delivered, got {result.items_delivered}"
+    )
