@@ -1,6 +1,6 @@
 # news-aggregator-bot
 
-A self-hosted Telegram bot that wakes up every morning with a digest of what actually mattered overnight — pulled from Reddit, Polymarket, and Hacker News, scored by community engagement, deduplicated, enriched with the top comments, and synthesized into a short readable summary by OpenAI.
+A self-hosted Telegram bot that wakes up every morning with a digest of what actually mattered overnight — pulled from RSS feeds, Polymarket, and Hacker News, scored by engagement signals, deduplicated, and synthesized into a short readable summary by OpenAI.
 
 Designed for personal use: one operator, one Telegram chat, one Linux VPS, configurable topics. The defaults ship with crypto news + a SOL / SUI / AVAX watchlist + AI/ML news, but adding a new topic is a config-only change.
 
@@ -27,10 +27,9 @@ Reddit's mood is cautiously skeptical; Polymarket is pricing in further upside.
 
 ## Features
 
-- **Three live sources out of the box**: Reddit (hot listings via public JSON), Polymarket (Gamma event search), Hacker News (Algolia search).
-- **Community-aware**: top Reddit items get their top comments + sentiment fetched so the LLM summarizes what the community actually said, not just the headline.
+- **Three live sources out of the box**: RSS feeds (broad crypto + per-coin tag feeds), Polymarket (Gamma event search), Hacker News (Algolia search).
 - **Near-duplicate removal** within each digest (Jaccard similarity over n-grams).
-- **Per-author cap** so no single redditor dominates.
+- **Per-author cap** so no single author dominates.
 - **Cross-day memory** — items delivered in any previous digest within `dedup_window_days` are filtered out, so tomorrow doesn't repeat today.
 - **Heartbeat fallback** when nothing new survives the filter, so you always get a daily signal that the bot is alive.
 - **Data-driven topics** — adding a new digest stream (e.g., geopolitics, climate) is a single `[topics.<id>]` block in `config.toml`. No code changes.
@@ -49,11 +48,10 @@ Reddit's mood is cautiously skeptical; Polymarket is pricing in further upside.
                 │                │                                          │
                 │                ▼                                          │
                 │   ┌──────── pipeline.run_digest(topic) ─────────┐        │
-                │   │ fetch (reddit, polymarket, hackernews)      │        │
+                │   │ fetch (rss, polymarket, hackernews)         │        │
                 │   │ → filter recently-delivered URLs            │        │
                 │   │ → dedupe near-duplicates                    │        │
                 │   │ → sort by engagement, per-author cap        │        │
-                │   │ → enrich top reddit items with comments     │        │
                 │   │ → synthesize with OpenAI (gpt-5.x-mini)     │        │
                 │   │ → deliver to Telegram (HTML, with fallback) │        │
                 │   │ → record delivered URLs to SQLite           │        │
@@ -91,7 +89,6 @@ You need:
 - An OpenAI API key (any model that supports `chat.completions` + `max_completion_tokens`).
 - A Telegram bot token from [@BotFather](https://t.me/BotFather).
 - Your numeric Telegram chat ID (start a chat with the bot, then `curl https://api.telegram.org/bot<TOKEN>/getUpdates` to find it).
-- Reddit OAuth is **optional** — the bot uses Reddit's public JSON endpoints by default. Add OAuth credentials only if you start hitting anonymous rate limits.
 
 ## Configuration
 
@@ -107,31 +104,39 @@ Each digest is one `[topics.<id>]` table. Below is the default `config.example.t
 ```toml
 [topics.crypto_general]
 kind = "general"
-sources = ["reddit", "polymarket", "hackernews"]
-subreddits = ["CryptoCurrency", "CryptoMarkets", "ethfinance"]
-polymarket_tags = ["crypto"]
+sources = ["rss", "polymarket", "hackernews"]
+rss_feeds = ["https://cointelegraph.com/rss", "https://decrypt.co/feed"]
+polymarket_tags = ["crypto", "bitcoin", "ethereum"]
 hn_keywords = ["bitcoin", "ethereum", "stablecoin", "defi"]
 prompt_template = "general_crypto.md"
 top_n = 15
-schedule = "0 8 * * *"
+schedule = "5 8,20 * * *"
 
 [topics.crypto_watchlist]
 kind = "watchlist"
-sources = ["reddit", "polymarket", "hackernews"]
-symbols = ["SOL", "SUI", "AVAX"]
+sources = ["rss", "polymarket", "hackernews"]
 prompt_template = "watchlist.md"
 per_symbol_top_n = 5
-schedule = "0 8 * * *"
+schedule = "10 8,20 * * *"
+
+  [[topics.crypto_watchlist.watch]]
+  ticker = "SOL"
+  aliases = ["Solana"]
+  feeds = ["https://cointelegraph.com/rss/tag/solana"]
+
+  [[topics.crypto_watchlist.watch]]
+  ticker = "AVAX"
+  aliases = ["Avalanche"]
+  feeds = ["https://cointelegraph.com/rss/tag/avalanche"]
 
 [topics.ai_general]
 kind = "general"
-sources = ["reddit", "hackernews"]      # Polymarket skipped — thin AI markets
-subreddits = ["MachineLearning", "LocalLLaMA", "singularity"]
-polymarket_tags = []
-hn_keywords = ["LLM", "AI", "Claude", "GPT", "Anthropic", "OpenAI", "Mistral", "Llama", "Gemini"]
+sources = ["polymarket", "hackernews"]
+polymarket_tags = ["OpenAI", "Anthropic", "Claude", "AGI"]
+hn_keywords = ["LLM", "Claude", "GPT", "Anthropic", "OpenAI", "Gemini"]
 prompt_template = "ai_general.md"
 top_n = 15
-schedule = "30 8 * * *"
+schedule = "0 8,20 * * *"
 ```
 
 To add a new topic, copy a block, change the id and fields, drop a matching prompt template in `aggregator/prompts/`, restart. No Python edits.
@@ -214,7 +219,7 @@ aggregator/
 ├── scheduler.py             # APScheduler cron registration
 ├── synth.py                 # OpenAI synthesis (prompt build + snippet trim)
 ├── prompts/                 # per-topic LLM prompts
-├── sources/                 # one file per source: reddit.py, polymarket.py, hn.py
+├── sources/                 # one file per source: rss.py, polymarket.py, hn.py
 ├── delivery/telegram.py     # HTML mode with plain-text fallback
 ├── bot/
 │   ├── app.py               # PTB Application factory + COMMANDS registry + publish_commands

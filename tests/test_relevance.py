@@ -1,7 +1,7 @@
 """Tests for the crypto-watchlist relevance filter.
 
 The noise examples are real titles pulled from production run 12, where the
-LLM correctly returned 'no notable activity' for every symbol because Reddit's
+LLM correctly returned 'no notable activity' for every symbol because a
 global symbol search had filled the input with hockey teams, video games, and
 perfume brands.
 """

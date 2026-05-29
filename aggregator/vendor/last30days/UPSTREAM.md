@@ -9,9 +9,6 @@ To reproduce this exact vendor: `python scripts/vendor_last30days.py 1e03af19e0a
 ## Vendored modules (from `skills/last30days/scripts/lib/`)
 
 - `__init__.py`
-- `reddit.py`
-- `reddit_public.py`
-- `reddit_enrich.py`
 - `polymarket.py`
 - `dedupe.py`
 - `cluster.py`
@@ -45,15 +42,6 @@ To reproduce this exact vendor: `python scripts/vendor_last30days.py 1e03af19e0a
   in our flat package layout. The orphan `sys.path.insert` lines are
   left in place as harmless no-ops to minimize the patch surface.
 - No other logic changes.
-
-## Local patches
-
-- `reddit_public.py`: removed the hardcoded Chrome `USER_AGENT` constant and
-  now imports `USER_AGENT` from `aggregator.sources._ua`. This unifies the
-  Reddit User-Agent across both the hot-listing path (`sources/reddit.py`)
-  and the public-search path here, so Reddit's rate-limit budget and any
-  UA-based throttling apply against a single, contact-bearing identity.
-  Refs audit finding H4.
 
 ## Deviations from initial vendor spec
 

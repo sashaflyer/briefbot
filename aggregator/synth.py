@@ -50,7 +50,7 @@ def _shorten_body(item_dict: dict[str, Any], query: str) -> dict[str, Any]:
 def _sanitize_for_html(item_dict: dict[str, Any]) -> dict[str, Any]:
     """HTML-escape user-controlled string fields before they reach the LLM.
 
-    The digest is sent with ``parse_mode="HTML"``. If a Reddit/HN/Polymarket
+    The digest is sent with ``parse_mode="HTML"``. If an RSS/HN/Polymarket
     title contains raw ``<a href="https://evil">click</a>``, the LLM might
     pass it through verbatim — injecting attacker-chosen links into the
     trusted digest. Escaping at the prompt boundary means even a

@@ -14,13 +14,14 @@ def storage(tmp_path):
     s.init_schema()
     s.seed_topics({
         "crypto_general": TopicConfig(
-            kind="general", sources=["reddit"], subreddits=["X"],
+            kind="general", sources=["rss"],
+            rss_feeds=["https://cointelegraph.com/rss"],
             polymarket_tags=["crypto"], prompt_template="general_crypto.md",
             top_n=10, schedule="0 8 * * *",
         ),
         "crypto_watchlist": TopicConfig(
-            kind="watchlist", sources=["reddit"],
-            watch=[WatchEntry(ticker="SOL")],
+            kind="watchlist", sources=["rss"],
+            watch=[WatchEntry(ticker="SOL", feeds=["https://cointelegraph.com/rss/tag/solana"])],
             prompt_template="watchlist.md", per_symbol_top_n=5,
             schedule="0 8 * * *",
         ),
@@ -28,7 +29,7 @@ def storage(tmp_path):
     now = datetime.now(timezone.utc)
     rid = s.start_run("crypto_general", trigger="scheduled", at=now)
     s.finish_run(rid, status="ok", items_fetched=10, items_delivered=5, at=now)
-    s.record_source_success("reddit", at=now)
+    s.record_source_success("rss", at=now)
     return s
 
 
@@ -61,7 +62,7 @@ async def test_status_authorized_chat_replies(storage):
     text = call.args[0]
     assert "status" in text.lower()
     assert "crypto_general" in text
-    assert "reddit" in text
+    assert "rss" in text
     # Reply must use HTML parse_mode (topic names contain underscores that
     # would break legacy Markdown).
     assert call.kwargs.get("parse_mode") == "HTML"
@@ -88,7 +89,8 @@ async def test_status_long_reply_is_chunked(tmp_path):
     s.init_schema()
     topics = {
         f"topic_{i:03d}": TopicConfig(
-            kind="general", sources=["reddit"], subreddits=["X"],
+            kind="general", sources=["rss"],
+            rss_feeds=["https://cointelegraph.com/rss"],
             polymarket_tags=["crypto"], prompt_template="general_crypto.md",
             top_n=10, schedule="0 8 * * *",
         )

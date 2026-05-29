@@ -13,13 +13,14 @@ def storage(tmp_path):
     s.init_schema()
     s.seed_topics({
         "crypto_general": TopicConfig(
-            kind="general", sources=["reddit", "hackernews"], subreddits=["X"],
+            kind="general", sources=["rss", "hackernews"],
+            rss_feeds=["https://cointelegraph.com/rss"],
             polymarket_tags=[], prompt_template="general_crypto.md",
             top_n=10, schedule="0 8 * * *",
         ),
         "crypto_watchlist": TopicConfig(
-            kind="watchlist", sources=["reddit"],
-            watch=[WatchEntry(ticker="SOL")],
+            kind="watchlist", sources=["rss"],
+            watch=[WatchEntry(ticker="SOL", feeds=["https://cointelegraph.com/rss/tag/solana"])],
             prompt_template="watchlist.md", per_symbol_top_n=5,
             schedule="30 8 * * *",
         ),
@@ -60,7 +61,7 @@ async def test_topics_lists_all_configured_topics(storage):
     assert "crypto_general" in text
     assert "general" in text
     assert "0 8 * * *" in text
-    assert "reddit" in text
+    assert "rss" in text
     assert "hackernews" in text
     assert "crypto_watchlist" in text
     assert "watchlist" in text

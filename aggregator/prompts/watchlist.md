@@ -13,12 +13,12 @@ WORKED EXAMPLE (shape + style; the facts below are illustrative — do NOT copy 
 BEGIN EXAMPLE
 <b>🪙 SOL</b>
 
-• Solana validators voted to raise the inflation taper rate; the proposal passed Saturday. <a href="https://reddit.com/r/solana/comments/def">↗</a>
-• Phantom wallet shipped native swaps for SPL tokens, with early reports of routing issues for low-liquidity pairs. <a href="https://reddit.com/r/solana/comments/ghi">↗</a>
+• Solana validators voted to raise the inflation taper rate; the proposal passed Saturday. <a href="https://cointelegraph.com/rss/tag/solana/1">↗</a>
+• Phantom wallet shipped native swaps for SPL tokens, with early reports of routing issues for low-liquidity pairs. <a href="https://decrypt.co/news/phantom-swaps">↗</a>
 
 <b>🪙 SUI</b>
 
-• Sui Foundation announced a 10M grant program for AI-adjacent dApps; commenters note three of four launch partners are foundation-backed already. <a href="https://reddit.com/r/sui/comments/jkl">↗</a>
+• Sui Foundation announced a 10M grant program for AI-adjacent dApps; commenters note three of four launch partners are foundation-backed already. <a href="https://cointelegraph.com/rss/tag/sui/1">↗</a>
 • A polymarket on "SUI above $5 by July 1" jumped from 12 to 24 percent on 800K volume. <a href="https://polymarket.com/event/sui-5-jul">↗</a>
 
 <b>🪙 AVAX</b>

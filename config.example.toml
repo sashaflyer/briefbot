@@ -19,39 +19,46 @@ data_dir = "./data"
 
 [topics.crypto_general]
 kind = "general"
-sources = ["reddit", "polymarket", "hackernews"]
-subreddits = ["CryptoCurrency", "CryptoMarkets", "ethfinance"]
-polymarket_tags = ["crypto"]
-hn_keywords = ["bitcoin", "ethereum", "stablecoin", "defi"]
+sources = ["rss", "polymarket", "hackernews"]
+rss_feeds = [
+  "https://cointelegraph.com/rss",
+  "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml",
+  "https://decrypt.co/feed",
+  "https://www.theblock.co/rss.xml",
+]
+polymarket_tags = ["crypto", "bitcoin", "ethereum"]
+hn_keywords = ["bitcoin", "ethereum", "Solana", "stablecoin", "defi", "Coinbase", "Binance", "Tether", "ETF", "rollup"]
 prompt_template = "general_crypto.md"
 top_n = 15
-schedule = "0 8 * * *"
+schedule = "5 8,20 * * *"
 
 [topics.crypto_watchlist]
 kind = "watchlist"
-sources = ["reddit", "polymarket", "hackernews"]
+sources = ["rss", "polymarket", "hackernews"]
 prompt_template = "watchlist.md"
 per_symbol_top_n = 5
-schedule = "0 8 * * *"
+schedule = "10 8,20 * * *"
 
   [[topics.crypto_watchlist.watch]]
   ticker = "SOL"
   aliases = ["Solana"]
+  feeds = ["https://cointelegraph.com/rss/tag/solana"]
 
   [[topics.crypto_watchlist.watch]]
   ticker = "SUI"
   aliases = ["Sui Network"]
+  feeds = ["https://cointelegraph.com/rss/tag/sui"]
 
   [[topics.crypto_watchlist.watch]]
   ticker = "AVAX"
   aliases = ["Avalanche"]
+  feeds = ["https://cointelegraph.com/rss/tag/avalanche"]
 
 [topics.ai_general]
 kind = "general"
-sources = ["reddit", "hackernews"]
-subreddits = ["MachineLearning", "LocalLLaMA", "singularity"]
-polymarket_tags = []
-hn_keywords = ["LLM", "AI", "Claude", "GPT", "Anthropic", "OpenAI", "Mistral", "Llama", "Gemini"]
+sources = ["polymarket", "hackernews"]
+polymarket_tags = ["OpenAI", "Anthropic", "Claude", "AGI"]
+hn_keywords = ["LLM", "Claude", "GPT", "Anthropic", "OpenAI", "Gemini", "Grok", "xAI", "DeepMind", "agent", "RAG", "Hugging Face"]
 prompt_template = "ai_general.md"
 top_n = 15
-schedule = "30 8 * * *"
+schedule = "0 8,20 * * *"

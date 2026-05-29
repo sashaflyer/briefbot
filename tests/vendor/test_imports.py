@@ -4,9 +4,6 @@ import importlib
 import pytest
 
 MODULES = [
-    "aggregator.vendor.last30days.reddit",
-    "aggregator.vendor.last30days.reddit_public",
-    "aggregator.vendor.last30days.reddit_enrich",
     "aggregator.vendor.last30days.polymarket",
     "aggregator.vendor.last30days.dedupe",
     "aggregator.vendor.last30days.cluster",

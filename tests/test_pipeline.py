@@ -40,11 +40,11 @@ def storage(tmp_path, cfg):
 async def test_run_digest_happy_path(cfg, storage):
     from aggregator import pipeline
 
-    reddit_items = [make_item("reddit", i) for i in range(5)]
+    rss_items = [make_item("rss", i) for i in range(5)]
     poly_items = [make_item("polymarket", i) for i in range(3)]
 
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
-        return_value={"reddit": reddit_items, "polymarket": poly_items}
+        return_value={"rss": rss_items, "polymarket": poly_items}
     )), patch.object(pipeline, "_score_and_dedup",
                      side_effect=lambda items, **kw: items[: cfg.topics["crypto_general"].top_n]
     ), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="DIGEST TEXT"
@@ -64,7 +64,7 @@ async def test_run_digest_one_source_fails(cfg, storage):
     from aggregator import pipeline
 
     async def fake_fetch_all(*a, **kw):
-        return {"reddit": [make_item("reddit", 0)],
+        return {"rss": [make_item("rss", 0)],
                 "polymarket": RuntimeError("polymarket down")}
 
     with patch.object(pipeline, "_fetch_all", side_effect=fake_fetch_all
@@ -86,7 +86,7 @@ async def test_run_digest_all_sources_fail(cfg, storage):
     from aggregator import pipeline
 
     async def fake_fetch_all(*a, **kw):
-        return {"reddit": RuntimeError("boom"),
+        return {"rss": RuntimeError("boom"),
                 "polymarket": RuntimeError("boom2")}
 
     with patch.object(pipeline, "_fetch_all", side_effect=fake_fetch_all
@@ -95,7 +95,7 @@ async def test_run_digest_all_sources_fail(cfg, storage):
                                            trigger="scheduled")
 
     assert result.status == "error"
-    assert storage.get_source_health("reddit")["consecutive_failures"] == 1
+    assert storage.get_source_health("rss")["consecutive_failures"] == 1
     assert storage.get_source_health("polymarket")["consecutive_failures"] == 1
 
 
@@ -104,7 +104,7 @@ async def test_all_sources_fail_sends_failure_heartbeat(cfg, storage):
     from aggregator import pipeline
 
     async def fake_fetch_all(*a, **kw):
-        return {"reddit": RuntimeError("boom"),
+        return {"rss": RuntimeError("boom"),
                 "polymarket": RuntimeError("boom2")}
 
     fake_send = AsyncMock(return_value=[1])
@@ -125,31 +125,31 @@ def test_score_and_dedup_removes_near_duplicates():
     from datetime import datetime, timezone
 
     items = [
-        Item(id="reddit:1", source="reddit",
+        Item(id="rss:1", source="rss",
              title="Bitcoin hits new all-time high above $150,000 amid ETF inflows",
-             url="https://reddit.com/1",
+             url="https://cointelegraph.com/1",
              text="Bitcoin reached a new all-time high above one hundred fifty thousand dollars today, driven by spot ETF inflows.",
              created_at=datetime.now(timezone.utc),
-             engagement_raw={"upvotes": 1000}, metadata={"subreddit": "CryptoCurrency"}),
-        Item(id="reddit:2", source="reddit",
+             engagement_raw={"score": 1000}, metadata={}),
+        Item(id="rss:2", source="rss",
              title="Bitcoin hits new all-time high above $150,000 driven by ETF flows",
-             url="https://reddit.com/2",
+             url="https://cointelegraph.com/2",
              text="Bitcoin reached a new all-time high above one hundred fifty thousand dollars today, driven by ETF inflows from institutional buyers.",
              created_at=datetime.now(timezone.utc),
-             engagement_raw={"upvotes": 500}, metadata={"subreddit": "Bitcoin"}),
-        Item(id="reddit:3", source="reddit",
+             engagement_raw={"score": 500}, metadata={}),
+        Item(id="rss:3", source="rss",
              title="Polymarket trader profile published in WSJ",
-             url="https://reddit.com/3",
+             url="https://cointelegraph.com/3",
              text="A wealthy crypto trader on Polymarket was profiled in the Wall Street Journal yesterday.",
              created_at=datetime.now(timezone.utc),
-             engagement_raw={"upvotes": 300}, metadata={"subreddit": "CryptoCurrency"}),
+             engagement_raw={"score": 300}, metadata={}),
     ]
     out = pipeline._score_and_dedup(items, top_n=10, per_author_cap=3)
     # The two near-duplicate Bitcoin items should collapse; only one survives.
     bitcoin_ids = [it.id for it in out if "bitcoin" in it.title.lower()]
     assert len(bitcoin_ids) == 1
     # The unrelated polymarket item should still be present.
-    assert any(it.id == "reddit:3" for it in out)
+    assert any(it.id == "rss:3" for it in out)
 
 
 def test_score_and_dedup_handles_empty():
@@ -161,7 +161,7 @@ def test_cap_per_symbol_enforces_per_ticker_limit():
     from aggregator import pipeline
     now = datetime.now(timezone.utc)
     def _mk(title, id):
-        return Item(id=id, source="reddit", title=title, url=f"https://x/{id}",
+        return Item(id=id, source="rss", title=title, url=f"https://x/{id}",
                     text="", created_at=now, engagement_raw={}, metadata={})
     items = [_mk(f"SOL news {i}", f"a{i}") for i in range(30)] + \
             [_mk("AVAX rises", "b1")]
@@ -177,13 +177,13 @@ def test_dedupe_keeps_higher_engagement_variant():
     """When two near-duplicates exist, the higher-engagement one wins the slot."""
     from aggregator import pipeline
     items = [
-        Item(id="a", source="reddit", title="Bitcoin closed above 200k",
+        Item(id="a", source="rss", title="Bitcoin closed above 200k",
              url="https://a", text="", created_at=datetime.now(timezone.utc),
-             engagement_raw={"score": 5, "upvotes": 5, "comments": 0},
+             engagement_raw={"score": 5},
              metadata={}),
-        Item(id="b", source="reddit", title="Bitcoin closed above 200k!",
+        Item(id="b", source="rss", title="Bitcoin closed above 200k!",
              url="https://b", text="", created_at=datetime.now(timezone.utc),
-             engagement_raw={"score": 5000, "upvotes": 5000, "comments": 0},
+             engagement_raw={"score": 5000},
              metadata={}),
     ]
     out = pipeline._score_and_dedup(items, top_n=10, per_author_cap=0)
@@ -218,7 +218,7 @@ def make_distinct_item(source: str, idx: int) -> Item:
         text=body,
         created_at=datetime.now(timezone.utc),
         engagement_raw={"upvotes": 1000 - idx * 10},
-        metadata={"subreddit": "CryptoCurrency"},
+        metadata={},
     )
 
 
@@ -228,20 +228,20 @@ async def test_run_digest_filters_previously_delivered(cfg, storage):
     from unittest.mock import AsyncMock, patch
     from aggregator import pipeline
 
-    first_items = [make_distinct_item("reddit", i) for i in range(3)]
+    first_items = [make_distinct_item("rss", i) for i in range(3)]
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
-        return_value={"reddit": first_items, "polymarket": []}
+        return_value={"rss": first_items, "polymarket": []}
     )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="DIGEST1"
     )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
         result1 = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
     assert result1.status == "ok"
     assert result1.items_delivered == 3
 
-    # Second run: same 3 reddit items plus 2 truly fresh ones (indices 3, 4).
-    repeat = [make_distinct_item("reddit", i) for i in range(3)]
+    # Second run: same 3 rss items plus 2 truly fresh ones (indices 3, 4).
+    repeat = [make_distinct_item("rss", i) for i in range(3)]
     fresh = [make_distinct_item("polymarket", i) for i in range(3, 5)]
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
-        return_value={"reddit": repeat, "polymarket": fresh}
+        return_value={"rss": repeat, "polymarket": fresh}
     )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="DIGEST2"
     )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[2])):
         result2 = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
@@ -256,16 +256,16 @@ async def test_run_digest_does_not_record_when_telegram_fails(cfg, storage):
     from unittest.mock import AsyncMock, patch
     from aggregator import pipeline
 
-    items = [make_distinct_item("reddit", i) for i in range(3)]
+    items = [make_distinct_item("rss", i) for i in range(3)]
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
-        return_value={"reddit": items, "polymarket": []}
+        return_value={"rss": items, "polymarket": []}
     )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="DIGEST"
     )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[])):
         await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
 
-    items2 = [make_distinct_item("reddit", i) for i in range(3)]
+    items2 = [make_distinct_item("rss", i) for i in range(3)]
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
-        return_value={"reddit": items2, "polymarket": []}
+        return_value={"rss": items2, "polymarket": []}
     )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="D2"
     )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
         result = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
@@ -279,20 +279,20 @@ async def test_run_digest_empty_after_filter_sends_heartbeat(cfg, storage):
     from unittest.mock import AsyncMock, patch
     from aggregator import pipeline
 
-    items = [make_distinct_item("reddit", i) for i in range(3)]
+    items = [make_distinct_item("rss", i) for i in range(3)]
 
     # First run delivers all 3.
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
-        return_value={"reddit": items, "polymarket": []}
+        return_value={"rss": items, "polymarket": []}
     )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="D1"
     )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
         r1 = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
     assert r1.items_delivered == 3
 
     # Second run with same items: should hit the empty-result path.
-    same_items = [make_distinct_item("reddit", i) for i in range(3)]
+    same_items = [make_distinct_item("rss", i) for i in range(3)]
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
-        return_value={"reddit": same_items, "polymarket": []}
+        return_value={"rss": same_items, "polymarket": []}
     )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="SHOULD NOT BE CALLED"
     )) as fake_synth, patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[42])) as fake_send:
         r2 = await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
@@ -315,17 +315,17 @@ async def test_empty_digest_with_failed_send_records_error(cfg, storage):
     from aggregator import pipeline
 
     # First, deliver some items so they end up in delivered_findings.
-    items = [make_distinct_item("reddit", i) for i in range(3)]
+    items = [make_distinct_item("rss", i) for i in range(3)]
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
-        return_value={"reddit": items, "polymarket": []}
+        return_value={"rss": items, "polymarket": []}
     )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="D1"
     )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
         await pipeline.run_digest("crypto_general", cfg, storage, trigger="scheduled")
 
     # Second run: same items get filtered to empty, send_digest fails.
-    same_items = [make_distinct_item("reddit", i) for i in range(3)]
+    same_items = [make_distinct_item("rss", i) for i in range(3)]
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
-        return_value={"reddit": same_items, "polymarket": []}
+        return_value={"rss": same_items, "polymarket": []}
     )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[])):
         result = await pipeline.run_digest("crypto_general", cfg, storage,
                                            trigger="scheduled")
@@ -342,8 +342,8 @@ async def test_heartbeat_html_escapes_topic_id(cfg, storage):
     weird_id = "<weird>"
     cfg.topics[weird_id] = TopicConfig(
         kind="general",
-        sources=["reddit"],
-        subreddits=["test"],
+        sources=["rss"],
+        rss_feeds=["https://example.com/rss"],
         polymarket_tags=[],
         prompt_template="general_crypto.md",
         top_n=5,
@@ -351,9 +351,9 @@ async def test_heartbeat_html_escapes_topic_id(cfg, storage):
     )
 
     # First run delivers an item so the second run sees it as "previously delivered".
-    item = make_distinct_item("reddit", 0)
+    item = make_distinct_item("rss", 0)
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
-        return_value={"reddit": [item]}
+        return_value={"rss": [item]}
     )), patch.object(pipeline, "synthesize_async", new=AsyncMock(return_value="D1"
     )), patch.object(pipeline, "send_digest", new=AsyncMock(return_value=[1])):
         await pipeline.run_digest(weird_id, cfg, storage, trigger="scheduled")
@@ -361,7 +361,7 @@ async def test_heartbeat_html_escapes_topic_id(cfg, storage):
     # Second run with same item -> empty after filter -> heartbeat path.
     fake_send = AsyncMock(return_value=[42])
     with patch.object(pipeline, "_fetch_all", new=AsyncMock(
-        return_value={"reddit": [make_distinct_item("reddit", 0)]}
+        return_value={"rss": [make_distinct_item("rss", 0)]}
     )), patch.object(pipeline, "send_digest", new=fake_send):
         await pipeline.run_digest(weird_id, cfg, storage, trigger="scheduled")
 
@@ -371,181 +371,21 @@ async def test_heartbeat_html_escapes_topic_id(cfg, storage):
     assert "<weird>" not in sent
 
 
-@pytest.mark.asyncio
-async def test_enrich_reddit_items_adds_comments_to_metadata():
-    """Verify Reddit items get top_comments+comment_insights in metadata."""
-    from unittest.mock import patch
-    from aggregator import pipeline
-
-    fake_enriched = {
-        "url": "https://reddit.com/r/x/comments/abc/title/",
-        "top_comments": [
-            {"score": 500, "author": "alice", "excerpt": "actually this is misleading because..."},
-            {"score": 200, "author": "bob", "excerpt": "agreed, source links here"},
-            {"score": 50, "author": "cara", "excerpt": "fourth comment, should be dropped due to limit"},
-            {"score": 10, "author": "dan", "excerpt": "fifth"},
-        ],
-        "comment_insights": ["sentiment: skeptical", "consensus: pump-and-dump"],
-    }
-    items = [
-        make_distinct_item("reddit", 0),
-        make_distinct_item("reddit", 1),
-        make_distinct_item("polymarket", 2),  # should NOT be enriched
-    ]
-    with patch.object(pipeline._reddit_enrich, "enrich_reddit_item",
-                      return_value=fake_enriched):
-        out = await pipeline._enrich_reddit_items(items)
-
-    # Reddit items: metadata populated, limited to top 3 comments.
-    assert "top_comments" in out[0].metadata
-    assert len(out[0].metadata["top_comments"]) == 3  # capped
-    assert out[0].metadata["top_comments"][0]["author"] == "alice"
-    assert "comment_insights" in out[0].metadata
-    assert out[1].metadata.get("top_comments")
-    # Polymarket item: untouched.
-    assert "top_comments" not in out[2].metadata
-
-
-@pytest.mark.asyncio
-async def test_enrich_reddit_items_continues_on_failure():
-    """A single enrichment failure shouldn't take down the run."""
-    from unittest.mock import patch
-    from aggregator import pipeline
-
-    calls = []
-    def flaky(item):
-        calls.append(item["url"])
-        if "reddit/0" in item["url"]:
-            raise RuntimeError("network blip")
-        return {"url": item["url"],
-                "top_comments": [{"score": 1, "author": "x", "excerpt": "hi"}],
-                "comment_insights": []}
-
-    items = [make_distinct_item("reddit", 0), make_distinct_item("reddit", 1)]
-    with patch.object(pipeline._reddit_enrich, "enrich_reddit_item", side_effect=flaky):
-        out = await pipeline._enrich_reddit_items(items)
-
-    # Both items were attempted; only the second got enriched.
-    assert len(calls) == 2
-    assert "top_comments" not in out[0].metadata
-    assert out[1].metadata.get("top_comments")
-
-
-@pytest.mark.asyncio
-async def test_enrich_reddit_items_aborts_on_rate_limit():
-    """If upstream raises a 429-bearing HTTP error, stop enriching the rest."""
-    from unittest.mock import MagicMock, patch
-    from aggregator import pipeline
-
-    # Upstream reddit_enrich uses httpx; mimic the .response.status_code shape
-    # without taking a hard test dep on httpx internals.
-    class FakeHTTPError(Exception):
-        def __init__(self, status):
-            super().__init__(f"HTTP {status}")
-            self.response = MagicMock(status_code=status)
-
-    calls = []
-    def fake(item):
-        calls.append(item["url"])
-        raise FakeHTTPError(429)
-
-    items = [make_distinct_item("reddit", i) for i in range(5)]
-    with patch.object(pipeline._reddit_enrich, "enrich_reddit_item", side_effect=fake):
-        await pipeline._enrich_reddit_items(items)
-
-    # Should bail after the first rate-limit signal.
-    assert len(calls) == 1
-
-
-@pytest.mark.asyncio
-async def test_enrich_reddit_items_continues_on_non_429():
-    """Non-rate-limit failures should NOT abort the loop early."""
-    from unittest.mock import MagicMock, patch
-    from aggregator import pipeline
-
-    class FakeHTTPError(Exception):
-        def __init__(self, status):
-            super().__init__(f"HTTP {status}")
-            self.response = MagicMock(status_code=status)
-
-    calls = []
-    def fake(item):
-        calls.append(item["url"])
-        raise FakeHTTPError(500)
-
-    items = [make_distinct_item("reddit", i) for i in range(3)]
-    with patch.object(pipeline._reddit_enrich, "enrich_reddit_item", side_effect=fake):
-        await pipeline._enrich_reddit_items(items)
-
-    # Each item attempted — 500 is transient, not a rate-limit abort signal.
-    assert len(calls) == 3
-
-
-@pytest.mark.asyncio
-async def test_enrich_reddit_items_runs_with_bounded_concurrency():
-    """Enrichment runs in parallel but caps in-flight calls at the configured
-    concurrency. Verifies behavior via a thread-safe in-flight counter."""
-    import threading
-    import time as _time
-    from unittest.mock import patch
-    from aggregator import pipeline
-
-    lock = threading.Lock()
-    state = {"in_flight": 0, "peak": 0}
-
-    def slow_enrich(item):
-        with lock:
-            state["in_flight"] += 1
-            state["peak"] = max(state["peak"], state["in_flight"])
-        _time.sleep(0.05)
-        with lock:
-            state["in_flight"] -= 1
-        return {"url": item["url"], "top_comments": [], "comment_insights": []}
-
-    items = [make_distinct_item("reddit", i) for i in range(6)]
-    with patch.object(pipeline._reddit_enrich, "enrich_reddit_item",
-                      side_effect=slow_enrich):
-        await pipeline._enrich_reddit_items(items)
-
-    assert state["peak"] >= 2  # ran some calls concurrently
-    assert state["peak"] <= pipeline._REDDIT_ENRICH_CONCURRENCY
-
-
-@pytest.mark.asyncio
-async def test_enrich_reddit_items_respects_cap():
-    """No more than _REDDIT_ENRICH_CAP items get enriched per run."""
-    from unittest.mock import patch
-    from aggregator import pipeline
-
-    fake = {"url": "x", "top_comments": [], "comment_insights": []}
-    items = [make_distinct_item("reddit", i) for i in range(pipeline._REDDIT_ENRICH_CAP + 5)]
-    call_count = 0
-    def counter(item):
-        nonlocal call_count
-        call_count += 1
-        return fake
-
-    with patch.object(pipeline._reddit_enrich, "enrich_reddit_item", side_effect=counter):
-        await pipeline._enrich_reddit_items(items)
-
-    assert call_count == pipeline._REDDIT_ENRICH_CAP
-
-
 def test_per_author_cap_limits_per_author():
     from aggregator import pipeline
     # 5 items from same author, 2 from another, 1 with no author.
     items = []
     for i in range(5):
         items.append(Item(
-            id=f"r:hot_{i}", source="reddit",
-            title=f"Hot story {i}", url=f"https://reddit.com/hot_{i}",
+            id=f"r:hot_{i}", source="rss",
+            title=f"Hot story {i}", url=f"https://cointelegraph.com/hot_{i}",
             text="x", created_at=datetime.now(timezone.utc),
             engagement_raw={"upvotes": 1000 - i}, metadata={"author": "alice"},
         ))
     for i in range(2):
         items.append(Item(
-            id=f"r:bob_{i}", source="reddit",
-            title=f"Bob story {i}", url=f"https://reddit.com/bob_{i}",
+            id=f"r:bob_{i}", source="rss",
+            title=f"Bob story {i}", url=f"https://cointelegraph.com/bob_{i}",
             text="x", created_at=datetime.now(timezone.utc),
             engagement_raw={"upvotes": 500}, metadata={"author": "bob"},
         ))
@@ -569,7 +409,7 @@ def test_per_author_cap_limits_per_author():
 def test_per_author_cap_disabled_when_zero():
     from aggregator import pipeline
     items = [
-        Item(id=f"r:{i}", source="reddit", title=f"t{i}",
+        Item(id=f"r:{i}", source="rss", title=f"t{i}",
              url=f"u/{i}", text="x",
              created_at=datetime.now(timezone.utc),
              engagement_raw={}, metadata={"author": "alice"})
@@ -584,13 +424,13 @@ def test_per_author_cap_preserves_engagement_order():
     from aggregator import pipeline
     # Already sorted by engagement (highest first) — that's the contract.
     items = [
-        Item(id="r:hi", source="reddit", title="hi", url="u/hi", text="x",
+        Item(id="r:hi", source="rss", title="hi", url="u/hi", text="x",
              created_at=datetime.now(timezone.utc),
              engagement_raw={"upvotes": 999}, metadata={"author": "alice"}),
-        Item(id="r:mid", source="reddit", title="mid", url="u/mid", text="x",
+        Item(id="r:mid", source="rss", title="mid", url="u/mid", text="x",
              created_at=datetime.now(timezone.utc),
              engagement_raw={"upvotes": 500}, metadata={"author": "alice"}),
-        Item(id="r:lo", source="reddit", title="lo", url="u/lo", text="x",
+        Item(id="r:lo", source="rss", title="lo", url="u/lo", text="x",
              created_at=datetime.now(timezone.utc),
              engagement_raw={"upvotes": 100}, metadata={"author": "alice"}),
     ]

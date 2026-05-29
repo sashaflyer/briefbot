@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validat
 
 # The set of source registry keys understood by the pipeline. Kept in sync
 # with aggregator.pipeline.SOURCES — adding a source means updating both.
-_KNOWN_SOURCES = {"reddit", "rss", "polymarket", "hackernews"}
+_KNOWN_SOURCES = {"rss", "polymarket", "hackernews"}
 
 # Prompt template filenames are constrained to a safe character class so a
 # config writer cannot escape PROMPTS_DIR via path-traversal sequences.
@@ -58,6 +58,7 @@ class WatchEntry(BaseModel):
 
     ticker: str
     aliases: list[str] = Field(default_factory=list)
+    feeds: list[str] = Field(default_factory=list)
 
     @field_validator("ticker")
     @classmethod
@@ -73,6 +74,11 @@ class WatchEntry(BaseModel):
     @field_validator("aliases")
     @classmethod
     def _v_aliases(cls, v: list[str]) -> list[str]:
+        return _strip_nonempty_list(v)
+
+    @field_validator("feeds")
+    @classmethod
+    def _v_feeds(cls, v: list[str]) -> list[str]:
         return _strip_nonempty_list(v)
 
 
@@ -92,9 +98,9 @@ class TopicConfig(BaseModel):
     top_n: int | None = Field(default=None, ge=1, le=200)
     per_symbol_top_n: int | None = Field(default=None, ge=1, le=50)
     # Per-source query inputs (all optional; each source picks what it understands).
-    subreddits: list[str] = Field(default_factory=list)
     polymarket_tags: list[str] = Field(default_factory=list)
     hn_keywords: list[str] = Field(default_factory=list)
+    rss_feeds: list[str] = Field(default_factory=list)
     watch: list[WatchEntry] = Field(default_factory=list)
 
     @field_validator("schedule")
@@ -121,7 +127,7 @@ class TopicConfig(BaseModel):
             )
         return v
 
-    @field_validator("subreddits", "polymarket_tags", "hn_keywords")
+    @field_validator("polymarket_tags", "hn_keywords", "rss_feeds")
     @classmethod
     def _v_string_lists(cls, v: list[str]) -> list[str]:
         return _strip_nonempty_list(v)

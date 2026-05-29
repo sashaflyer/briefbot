@@ -28,9 +28,6 @@ DEST = Path(__file__).resolve().parent.parent / "aggregator" / "vendor" / "last3
 
 MODULES = [
     "__init__.py",
-    "reddit.py",
-    "reddit_public.py",
-    "reddit_enrich.py",
     "polymarket.py",
     "dedupe.py",
     "cluster.py",

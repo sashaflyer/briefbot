@@ -115,8 +115,8 @@ def _sample_topics() -> dict[str, TopicConfig]:
     return {
         "crypto_general": TopicConfig(
             kind="general",
-            sources=["reddit", "polymarket"],
-            subreddits=["CryptoCurrency"],
+            sources=["rss", "polymarket"],
+            rss_feeds=["https://cointelegraph.com/rss"],
             polymarket_tags=["crypto"],
             prompt_template="general_crypto.md",
             top_n=10,
@@ -124,9 +124,10 @@ def _sample_topics() -> dict[str, TopicConfig]:
         ),
         "crypto_watchlist": TopicConfig(
             kind="watchlist",
-            sources=["reddit"],
+            sources=["rss"],
             watch=[
-                WatchEntry(ticker="SOL", aliases=["Solana"]),
+                WatchEntry(ticker="SOL", aliases=["Solana"],
+                           feeds=["https://cointelegraph.com/rss/tag/solana"]),
                 WatchEntry(ticker="SUI"),
             ],
             prompt_template="watchlist.md",
@@ -159,15 +160,16 @@ def test_seed_topics_persists_query_payload(storage):
     rows = {r["name"]: r for r in storage.list_topics()}
     g = json.loads(rows["crypto_general"]["search_queries"])
     assert g["kind"] == "general"
-    assert g["sources"] == ["reddit", "polymarket"]
-    assert g["subreddits"] == ["CryptoCurrency"]
+    assert g["sources"] == ["rss", "polymarket"]
+    assert g["rss_feeds"] == ["https://cointelegraph.com/rss"]
     assert g["polymarket_tags"] == ["crypto"]
     assert g["prompt_template"] == "general_crypto.md"
     w = json.loads(rows["crypto_watchlist"]["search_queries"])
     assert w["kind"] == "watchlist"
     assert w["watch"] == [
-        {"ticker": "SOL", "aliases": ["Solana"]},
-        {"ticker": "SUI", "aliases": []},
+        {"ticker": "SOL", "aliases": ["Solana"],
+         "feeds": ["https://cointelegraph.com/rss/tag/solana"]},
+        {"ticker": "SUI", "aliases": [], "feeds": []},
     ]
 
 
@@ -207,8 +209,8 @@ def test_record_and_recall_delivered_items(tmp_path):
     n = s.record_delivered_items(
         topic_id="crypto_general",
         items=[
-            {"id": "r:1", "url": "https://reddit.com/1", "title": "A"},
-            {"id": "r:2", "url": "https://reddit.com/2", "title": "B"},
+            {"id": "r:1", "url": "https://cointelegraph.com/news/1", "title": "A"},
+            {"id": "r:2", "url": "https://cointelegraph.com/news/2", "title": "B"},
             {"id": "", "url": "", "title": "no key"},  # no url + no id -> skipped
         ],
         at=now,
@@ -219,8 +221,8 @@ def test_record_and_recall_delivered_items(tmp_path):
         topic_id="crypto_general",
         since=now - timedelta(hours=1),
     )
-    # reddit.com is canonicalized to www.reddit.com.
-    assert urls == {"https://www.reddit.com/1", "https://www.reddit.com/2"}
+    assert urls == {"https://cointelegraph.com/news/1",
+                    "https://cointelegraph.com/news/2"}
 
 
 def test_recently_delivered_urls_filters_by_topic(tmp_path):

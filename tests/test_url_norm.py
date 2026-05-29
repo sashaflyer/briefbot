@@ -14,10 +14,6 @@ def test_strips_utm_params():
            canonicalize("https://x.example/a?id=5")
 
 
-def test_reddit_subdomain_unified():
-    assert canonicalize("https://old.reddit.com/r/x/comments/abc/foo") == \
-           canonicalize("https://www.reddit.com/r/x/comments/abc/foo")
-
 
 def test_scheme_lowered():
     assert canonicalize("HTTPS://x/A") == canonicalize("https://x/A")

@@ -12,7 +12,6 @@ from aggregator.config import Config
 from aggregator.sources.base import Item, Source
 from aggregator.sources.hn import HnSource
 from aggregator.sources.polymarket import PolymarketSource
-from aggregator.sources.reddit import RedditSource
 from aggregator.sources.rss import RssSource
 from aggregator.storage import Storage
 from aggregator.relevance import filter_crypto_watchlist_items
@@ -20,26 +19,14 @@ from aggregator.synth import synthesize_async
 from aggregator.url_norm import dedup_key
 from aggregator.delivery.telegram import send_digest
 from aggregator.vendor.last30days import dedupe as _dedupe
-from aggregator.vendor.last30days import reddit_enrich as _reddit_enrich
 from aggregator.vendor.last30days import schema as _schema
-
-# Cap on how many Reddit items get enriched per run (extra HTTP call each).
-# Higher = better digest quality, more risk of hitting Reddit's anonymous rate limit.
-_REDDIT_ENRICH_CAP = 10
-# Concurrent enrichment slots. Keep small — Reddit's anonymous rate limit is
-# strict and we don't want to earn a ban from a tight burst.
-_REDDIT_ENRICH_CONCURRENCY = 3
-# Comment trimming applied after upstream enrichment fills the field.
-_REDDIT_TOP_COMMENTS_PER_ITEM = 3
-_REDDIT_COMMENT_EXCERPT_CHARS = 150
 
 log = logging.getLogger(__name__)
 
 SOURCES: dict[str, Source] = {
-    "reddit": RedditSource(),
+    "rss": RssSource(),
     "polymarket": PolymarketSource(),
     "hackernews": HnSource(),
-    "rss": RssSource(),
 }
 
 
@@ -74,7 +61,7 @@ def _item_to_source_item(item: Item) -> "_schema.SourceItem":
         body=item.text,
         url=item.url,
         author=str(item.metadata.get("author") or "") or None,
-        container=str(item.metadata.get("subreddit") or "") or None,
+        container=None,
     )
 
 
@@ -86,66 +73,6 @@ def _engagement_score(item: Item) -> float:
         + 0.1 * item.engagement_raw.get("comments", 0)
         + 0.001 * (item.engagement_raw.get("volume") or 0)
     )
-
-
-async def _enrich_reddit_items(items: list[Item]) -> list[Item]:
-    """For the top Reddit items, fetch top comments + insights and stash them
-    on Item.metadata so the LLM can use them.
-
-    Non-Reddit items pass through untouched. Failures (network, rate limit,
-    parse) are logged but don't stop the run. Enrichment is capped to
-    _REDDIT_ENRICH_CAP items to keep the per-run HTTP budget bounded, and
-    runs at most _REDDIT_ENRICH_CONCURRENCY HTTP calls in parallel.
-    """
-    candidates = [
-        it for it in items if it.source == "reddit" and it.url
-    ][:_REDDIT_ENRICH_CAP]
-    if not candidates:
-        return items
-
-    sem = asyncio.Semaphore(_REDDIT_ENRICH_CONCURRENCY)
-    abort_rest = False
-
-    async def _one(item: Item) -> bool:
-        nonlocal abort_rest
-        if abort_rest:
-            return False
-        async with sem:
-            if abort_rest:
-                return False
-            try:
-                result = await asyncio.to_thread(
-                    _reddit_enrich.enrich_reddit_item, {"url": item.url}
-                )
-            except Exception as e:  # noqa: BLE001
-                log.warning("reddit enrich failed for %s: %s", item.url, e)
-                status = getattr(getattr(e, "response", None), "status_code", None)
-                if status == 429:
-                    log.warning(
-                        "reddit rate-limited; aborting enrichment for remaining items"
-                    )
-                    abort_rest = True
-                return False
-
-        raw_comments = (result.get("top_comments") or [])[:_REDDIT_TOP_COMMENTS_PER_ITEM]
-        trimmed = [
-            {
-                "score": c.get("score"),
-                "author": c.get("author"),
-                "excerpt": (c.get("excerpt") or "")[:_REDDIT_COMMENT_EXCERPT_CHARS],
-            }
-            for c in raw_comments
-        ]
-        insights = (result.get("comment_insights") or [])[:5]
-        item.metadata["top_comments"] = trimmed
-        item.metadata["comment_insights"] = insights
-        return True
-
-    results = await asyncio.gather(*(_one(it) for it in candidates))
-    enriched_count = sum(1 for r in results if r)
-    if enriched_count:
-        log.info("enriched %d reddit items with top comments", enriched_count)
-    return items
 
 
 def _cap_per_symbol(
@@ -251,11 +178,10 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
         return RunResult(run_id, "error", 0, 0)
 
     queries: dict[str, Any] = {
-        "subreddits": topic.subreddits,
         "polymarket_tags": topic.polymarket_tags,
         "hn_keywords": topic.hn_keywords,
-        # Expand watch entries to (ticker + aliases) so source searches widen
-        # recall (e.g., "SUI" + "Sui Network" both hit Reddit/HN).
+        "rss_feeds": topic.rss_feeds,
+        "rss_symbol_feeds": {w.ticker: w.feeds for w in topic.watch if w.feeds},
         "symbols": topic.query_symbols,
     }
 
@@ -306,9 +232,8 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
         log.info("filtered %d previously-delivered items; %d remain",
                  before - len(items), len(items))
 
-    # Watchlist symbol search (e.g. for "SOL", "AVAX") hits global Reddit/HN and
-    # pulls in NHL teams, video games, perfume brands. Drop off-domain items
-    # before they consume ranking budget or LLM tokens.
+    # Watchlist symbol search (e.g. for "SOL", "AVAX") can pull in off-domain items.
+    # Drop them before they consume ranking budget or LLM tokens.
     if topic.kind == "watchlist":
         before = len(items)
         items = filter_crypto_watchlist_items(items)
@@ -341,9 +266,6 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
         ranked = _cap_per_symbol(
             ranked, topic.canonical_symbols, alias_map, topic.per_symbol_top_n,  # type: ignore[arg-type]
         )
-
-    # Enrich top Reddit items with comments so the LLM has the actual context.
-    ranked = await _enrich_reddit_items(ranked)
 
     # Empty-result fallback: nothing new survived fetch/filter/dedup.
     # Send a short heartbeat so the user knows the bot is alive but quiet.

@@ -171,11 +171,11 @@ class Storage:
 
             {
                 "kind": "general" | "watchlist",
-                "sources": ["reddit", ...],
+                "sources": ["rss", ...],
                 "prompt_template": "general_crypto.md",
-                "subreddits": [...], "polymarket_tags": [...],
-                "hn_keywords": [...],
-                "watch": [{"ticker": "SOL", "aliases": ["Solana"]}, ...]
+                "polymarket_tags": [...], "hn_keywords": [...],
+                "rss_feeds": [...],
+                "watch": [{"ticker": "SOL", "aliases": ["Solana"], "feeds": [...]}, ...]
             }
 
         Consumers (pipeline, synth) decode this back from the row when needed.
@@ -185,11 +185,11 @@ class Storage:
                 "kind": topic.kind,
                 "sources": list(topic.sources),
                 "prompt_template": topic.prompt_template,
-                "subreddits": list(topic.subreddits),
                 "polymarket_tags": list(topic.polymarket_tags),
                 "hn_keywords": list(topic.hn_keywords),
+                "rss_feeds": list(topic.rss_feeds),
                 "watch": [
-                    {"ticker": w.ticker, "aliases": list(w.aliases)}
+                    {"ticker": w.ticker, "aliases": list(w.aliases), "feeds": list(w.feeds)}
                     for w in topic.watch
                 ],
             })

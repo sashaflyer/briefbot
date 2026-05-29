@@ -32,6 +32,6 @@ class Source(ABC):
         """Return items relevant to the topic's queries.
 
         `queries` is the JSON-decoded `topics.search_queries` for the topic
-        being processed (e.g., {"subreddits": [...], "polymarket_tags": [...]}).
+        being processed (e.g., {"rss_feeds": [...], "polymarket_tags": [...]}).
         Adapters use whatever subset they understand.
         """

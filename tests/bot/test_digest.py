@@ -14,7 +14,8 @@ class _CfgStub:
     def __init__(self, topic_ids: list[str]):
         self.topics = {
             tid: TopicConfig(
-                kind="general", sources=["reddit"], subreddits=["X"],
+                kind="general", sources=["rss"],
+                rss_feeds=["https://cointelegraph.com/rss"],
                 polymarket_tags=[], prompt_template="general_crypto.md",
                 top_n=10, schedule="0 8 * * *",
             )
