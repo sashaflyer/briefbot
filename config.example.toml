@@ -1,5 +1,5 @@
 [schedule]
-timezone = "Europe/Moscow"
+timezone = "UTC"
 
 [scoring]
 dedup_window_days = 7
@@ -25,12 +25,17 @@ rss_feeds = [
   "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml",
   "https://decrypt.co/feed",
   "https://www.theblock.co/rss.xml",
+  # NEW (verified 2026-06-07):
+  "https://cryptoslate.com/feed/",
+  "https://thedefiant.io/feed",
+  "https://blockworks.co/feed",
+  "https://bitcoinmagazine.com/feed",
 ]
 polymarket_tags = ["crypto", "bitcoin", "ethereum"]
 hn_keywords = ["bitcoin", "ethereum", "Solana", "stablecoin", "defi", "Coinbase", "Binance", "Tether", "ETF", "rollup"]
 prompt_template = "general_crypto.md"
 top_n = 15
-schedule = "5 8,20 * * *"
+schedule = "5 5,17 * * *"
 
 [topics.crypto_watchlist]
 kind = "watchlist"
@@ -42,16 +47,24 @@ rss_feeds = [
   "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml",
   "https://decrypt.co/feed",
   "https://www.theblock.co/rss.xml",
+  # NEW (verified 2026-06-07):
+  "https://cryptoslate.com/feed/",
+  "https://thedefiant.io/feed",
+  "https://blockworks.co/feed",
+  "https://bitcoinmagazine.com/feed",
 ]
 polymarket_tags = ["crypto"]
 prompt_template = "watchlist.md"
 per_symbol_top_n = 5
-schedule = "10 8,20 * * *"
+schedule = "10 5,17 * * *"
 
   [[topics.crypto_watchlist.watch]]
   ticker = "SOL"
   aliases = ["Solana"]
-  feeds = ["https://cointelegraph.com/rss/tag/solana"]
+  feeds = [
+    "https://cointelegraph.com/rss/tag/solana",
+    "https://solana.com/news/rss.xml",   # NEW
+  ]
   search_feeds = ["https://news.google.com/rss/search?q=Solana%20(site%3Acointelegraph.com%20OR%20site%3Atheblock.co%20OR%20site%3Adecrypt.co%20OR%20site%3Acryptoslate.com)%20when%3A7d&hl=en-US&gl=US&ceid=US:en"]
 
   [[topics.crypto_watchlist.watch]]
@@ -74,9 +87,18 @@ schedule = "10 8,20 * * *"
 
 [topics.ai_general]
 kind = "general"
-sources = ["polymarket", "hackernews"]
+sources = ["rss", "polymarket", "hackernews"]
+rss_feeds = [
+  "https://www.deepmind.google/blog/rss.xml",
+  "https://openai.com/blog/rss.xml",
+  "https://simonwillison.net/atom/everything/",
+  "https://stratechery.com/feed/",
+  "https://www.ben-evans.com/benedictevans?format=rss",
+  "https://github.blog/feed/",
+  "https://huggingface.co/blog/feed.xml",
+]
 polymarket_tags = ["OpenAI", "Anthropic", "Claude", "AGI"]
 hn_keywords = ["LLM", "Claude", "GPT", "Anthropic", "OpenAI", "Gemini", "Grok", "xAI", "DeepMind", "agent", "RAG", "Hugging Face"]
 prompt_template = "ai_general.md"
 top_n = 15
-schedule = "0 8,20 * * *"
+schedule = "0 5,17 * * *"

@@ -139,9 +139,13 @@ rss_feeds = [
   "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml",
   "https://decrypt.co/feed",
   "https://www.theblock.co/rss.xml",
+  "https://cryptoslate.com/feed/",
+  "https://thedefiant.io/feed",
+  "https://blockworks.co/feed",
+  "https://bitcoinmagazine.com/feed",
 ]
 polymarket_tags = ["crypto", "bitcoin", "ethereum"]
-hn_keywords = ["bitcoin", "ethereum", "Solana", "stablecoin", "defi"]
+hn_keywords = ["bitcoin", "ethereum", "Solana", "stablecoin", "defi", "Coinbase", "Binance", "Tether", "ETF", "rollup"]
 prompt_template = "general_crypto.md"
 top_n = 15
 schedule = "5 5,17 * * *"          # 05:05 & 17:05 in [schedule].timezone
@@ -149,8 +153,17 @@ schedule = "5 5,17 * * *"          # 05:05 & 17:05 in [schedule].timezone
 [topics.crypto_watchlist]
 kind = "watchlist"
 sources = ["rss", "polymarket", "hackernews"]
-rss_feeds = [ ... ]                # same 4 broad outlets as crypto_general, symbol-filtered
-polymarket_tags = ["crypto"]       # filtered down to the watched symbols
+rss_feeds = [
+  "https://cointelegraph.com/rss",
+  "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml",
+  "https://decrypt.co/feed",
+  "https://www.theblock.co/rss.xml",
+  "https://cryptoslate.com/feed/",
+  "https://thedefiant.io/feed",
+  "https://blockworks.co/feed",
+  "https://bitcoinmagazine.com/feed",
+]
+polymarket_tags = ["crypto"]
 prompt_template = "watchlist.md"
 per_symbol_top_n = 5
 schedule = "10 5,17 * * *"
@@ -158,23 +171,44 @@ schedule = "10 5,17 * * *"
   [[topics.crypto_watchlist.watch]]
   ticker = "SOL"
   aliases = ["Solana"]
-  feeds = ["https://cointelegraph.com/rss/tag/solana"]        # curated tag feed (trusted, unfiltered)
-  # Google News scoped to reputable outlets, alias-filtered to this symbol:
+  feeds = [
+    "https://cointelegraph.com/rss/tag/solana",
+    "https://solana.com/news/rss.xml",
+  ]
   search_feeds = ["https://news.google.com/rss/search?q=Solana%20(site%3Acointelegraph.com%20OR%20site%3Atheblock.co%20OR%20site%3Adecrypt.co%20OR%20site%3Acryptoslate.com)%20when%3A7d&hl=en-US&gl=US&ceid=US:en"]
 
-  # SUI / AVAX / ENA follow the same shape, each `search_feeds` swapping in its
-  # own keyword. ENA has no Cointelegraph tag, so its `feeds` uses CryptoSlate:
+  [[topics.crypto_watchlist.watch]]
+  ticker = "SUI"
+  aliases = ["Sui Network"]
+  feeds = ["https://cointelegraph.com/rss/tag/sui"]
+  search_feeds = ["https://news.google.com/rss/search?q=Sui%20(site%3Acointelegraph.com%20OR%20site%3Atheblock.co%20OR%20site%3Adecrypt.co%20OR%20site%3Acryptoslate.com)%20when%3A7d&hl=en-US&gl=US&ceid=US:en"]
+
+  [[topics.crypto_watchlist.watch]]
+  ticker = "AVAX"
+  aliases = ["Avalanche"]
+  feeds = ["https://cointelegraph.com/rss/tag/avalanche"]
+  search_feeds = ["https://news.google.com/rss/search?q=Avalanche%20(site%3Acointelegraph.com%20OR%20site%3Atheblock.co%20OR%20site%3Adecrypt.co%20OR%20site%3Acryptoslate.com)%20when%3A7d&hl=en-US&gl=US&ceid=US:en"]
+
   [[topics.crypto_watchlist.watch]]
   ticker = "ENA"
   aliases = ["Ethena"]
   feeds = ["https://cryptoslate.com/news/ethena/feed/"]
-  search_feeds = ["https://news.google.com/rss/search?q=Ethena%20(site%3A...)%20when%3A7d&hl=en-US&gl=US&ceid=US:en"]
+  search_feeds = ["https://news.google.com/rss/search?q=Ethena%20(site%3Acointelegraph.com%20OR%20site%3Atheblock.co%20OR%20site%3Adecrypt.co%20OR%20site%3Acryptoslate.com)%20when%3A7d&hl=en-US&gl=US&ceid=US:en"]
 
 [topics.ai_general]
 kind = "general"
-sources = ["polymarket", "hackernews"]
+sources = ["rss", "polymarket", "hackernews"]
+rss_feeds = [
+  "https://www.deepmind.google/blog/rss.xml",
+  "https://openai.com/blog/rss.xml",
+  "https://simonwillison.net/atom/everything/",
+  "https://stratechery.com/feed/",
+  "https://www.ben-evans.com/benedictevans?format=rss",
+  "https://github.blog/feed/",
+  "https://huggingface.co/blog/feed.xml",
+]
 polymarket_tags = ["OpenAI", "Anthropic", "Claude", "AGI"]
-hn_keywords = ["LLM", "Claude", "GPT", "Anthropic", "OpenAI", "Gemini"]
+hn_keywords = ["LLM", "Claude", "GPT", "Anthropic", "OpenAI", "Gemini", "Grok", "xAI", "DeepMind", "agent", "RAG", "Hugging Face"]
 prompt_template = "ai_general.md"
 top_n = 15
 schedule = "0 5,17 * * *"
