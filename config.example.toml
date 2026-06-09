@@ -35,7 +35,7 @@ polymarket_tags = ["crypto", "bitcoin", "ethereum"]
 hn_keywords = ["bitcoin", "ethereum", "Solana", "stablecoin", "defi", "Coinbase", "Binance", "Tether", "ETF", "rollup"]
 prompt_template = "general_crypto.md"
 top_n = 15
-schedule = "5 5,17 * * *"
+schedule = "10 5,17 * * *"
 
 [topics.crypto_watchlist]
 kind = "watchlist"
@@ -102,3 +102,34 @@ hn_keywords = ["LLM", "Claude", "GPT", "Anthropic", "OpenAI", "Gemini", "Grok", 
 prompt_template = "ai_general.md"
 top_n = 15
 schedule = "0 5,17 * * *"
+
+[topics.ai_blogs]
+kind = "general"
+sources = ["rss"]
+rss_feeds = [
+  # Karpathy-curated tech blogs -- imported from
+  # github.com/Sumanth077/Hands-On-AI-Engineering/ai_agents/daily-news-digest/sources.json
+  "https://simonwillison.net/atom/everything/",
+  "https://www.jeffgeerling.com/blog.xml",
+  "https://krebsonsecurity.com/feed/",
+  "https://daringfireball.net/feeds/main",
+  "https://lcamtuf.substack.com/feed",
+  "https://mitchellh.com/feed.xml",
+  "https://eli.thegreenplace.net/feeds/all.atom.xml",
+  "https://fabiensanglard.net/rss.xml",
+  "https://gwern.substack.com/feed",
+  "https://berthub.eu/articles/index.xml",
+  "https://www.troyhunt.com/rss/",
+  "https://computer.rip/rss.xml",
+  "https://overreacted.io/rss.xml",
+  "https://www.dwarkeshpatel.com/feed",
+  "https://geohot.github.io/blog/feed.xml",
+  "https://pluralistic.net/feed/",
+  "https://www.wheresyoured.at/rss/",
+  "https://experimental-history.com/feed",
+  "https://anildash.com/feed.xml",
+  "https://www.johndcook.com/blog/feed/",
+]
+prompt_template = "ai_blogs.md"
+top_n = 25
+schedule = "5 5,17 * * *"

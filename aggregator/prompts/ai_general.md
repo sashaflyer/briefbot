@@ -32,6 +32,7 @@ SHAPE SPEC:
 - Sections in order: "🤖 What's new in AI" (2-3 sentence overview), "🔬 Research and releases" (aim for 4-5 bullets; floor 3), "🏢 Industry and policy" (aim for 2-3 bullets), "💬 Community discussion" (aim for 2-3 bullets).
 - Use the exact section headers shown above — same emoji, same wording, wrapped in `<b>...</b>`.
 - Omit any section that has zero relevant items (skip both the header and the bullets).
+- Within each section, prefix each bullet with a category marker: 🔴 for major announcements and launches, 🟡 for significant developments, 🔵 for interesting but less urgent stories.
 - Prefer concrete and specific: model names, benchmark numbers, version numbers, company names, and dates.
 - Aim to keep total length under ~1800 characters — a soft guide; the section bullet counts above are the real bound.
 

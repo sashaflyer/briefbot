@@ -6,7 +6,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
-![Tests](https://img.shields.io/badge/tests-179%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-186%20passing-brightgreen)
 ![Delivery](https://img.shields.io/badge/delivery-Telegram-26A5E4?logo=telegram&logoColor=white)
 ![Status](https://img.shields.io/badge/status-running%20in%20prod-success)
 
@@ -52,6 +52,7 @@ Polymarket is pricing in further upside. Solana shipped a throughput upgrade.
 
 ## ✨ Features
 
+- **Four config-driven topics** — crypto general, crypto watchlist, AI/ML news, and a broad tech-blog digest (90+ Karpathy-curated feeds).
 - **Three keyless live sources** — RSS feeds (broad crypto outlets + per-coin tag feeds), Polymarket (Gamma event search), and Hacker News (Algolia search). No API keys, quotas, or accounts to get revoked.
 - **Per-coin watchlist** — each tracked symbol pulls from its own RSS tag feed and is bucketed by an explicit source tag, so a "Solana …" headline still lands under `SOL`.
 - **Near-duplicate removal** within each digest (Jaccard similarity over n-grams).
@@ -62,7 +63,7 @@ Polymarket is pricing in further upside. Solana shipped a throughput upgrade.
 - **`systemd`-managed** with `Type=notify` + watchdog and auto-restart, so a wedged event loop self-heals.
 - **HTML Telegram delivery** with an automatic plain-text fallback if the LLM emits malformed markup — never a silent failure.
 - **Bot command surface** — `/status`, `/digest`, `/topics`, `/help`, with a one-line extension pattern. `/digest <topic_id>` triggers a real run on demand; a per-topic lock keeps it from racing the scheduler.
-- **179 offline tests** covering pipeline, sources, scoring, dedup, synthesis, delivery, scheduling, and the bot.
+- **186 offline tests** covering pipeline, sources, scoring, dedup, synthesis, delivery, scheduling, and the bot.
 
 ## 📐 Architecture
 
@@ -128,91 +129,16 @@ Two files, both gitignored:
 
 ### Topic configuration
 
-Each digest is one `[topics.<id>]` table. The three shipping topics:
+Each digest is one `[topics.<id>]` table. [config.toml](config.toml) ships with four topics covering crypto and AI, staggered across the morning and evening windows:
 
-```toml
-[topics.crypto_general]
-kind = "general"
-sources = ["rss", "polymarket", "hackernews"]
-rss_feeds = [
-  "https://cointelegraph.com/rss",
-  "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml",
-  "https://decrypt.co/feed",
-  "https://www.theblock.co/rss.xml",
-  "https://cryptoslate.com/feed/",
-  "https://thedefiant.io/feed",
-  "https://blockworks.co/feed",
-  "https://bitcoinmagazine.com/feed",
-]
-polymarket_tags = ["crypto", "bitcoin", "ethereum"]
-hn_keywords = ["bitcoin", "ethereum", "Solana", "stablecoin", "defi", "Coinbase", "Binance", "Tether", "ETF", "rollup"]
-prompt_template = "general_crypto.md"
-top_n = 15
-schedule = "5 5,17 * * *"          # 05:05 & 17:05 in [schedule].timezone
+| Time | Topic | Sources |
+|------|-------|---------|
+| 05:00 / 17:00 | `ai_general` | RSS, Polymarket, HN |
+| 05:05 / 17:05 | `ai_blogs` | 90+ Karpathy-curated tech blogs (RSS only) |
+| 05:10 / 17:10 | `crypto_general` | RSS, Polymarket, HN |
+| 05:15 / 17:15 | `crypto_watchlist` | RSS (per-coin feeds), Polymarket, HN |
 
-[topics.crypto_watchlist]
-kind = "watchlist"
-sources = ["rss", "polymarket", "hackernews"]
-rss_feeds = [
-  "https://cointelegraph.com/rss",
-  "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml",
-  "https://decrypt.co/feed",
-  "https://www.theblock.co/rss.xml",
-  "https://cryptoslate.com/feed/",
-  "https://thedefiant.io/feed",
-  "https://blockworks.co/feed",
-  "https://bitcoinmagazine.com/feed",
-]
-polymarket_tags = ["crypto"]
-prompt_template = "watchlist.md"
-per_symbol_top_n = 5
-schedule = "10 5,17 * * *"
-
-  [[topics.crypto_watchlist.watch]]
-  ticker = "SOL"
-  aliases = ["Solana"]
-  feeds = [
-    "https://cointelegraph.com/rss/tag/solana",
-    "https://solana.com/news/rss.xml",
-  ]
-  search_feeds = ["https://news.google.com/rss/search?q=Solana%20(site%3Acointelegraph.com%20OR%20site%3Atheblock.co%20OR%20site%3Adecrypt.co%20OR%20site%3Acryptoslate.com)%20when%3A7d&hl=en-US&gl=US&ceid=US:en"]
-
-  [[topics.crypto_watchlist.watch]]
-  ticker = "SUI"
-  aliases = ["Sui Network"]
-  feeds = ["https://cointelegraph.com/rss/tag/sui"]
-  search_feeds = ["https://news.google.com/rss/search?q=Sui%20(site%3Acointelegraph.com%20OR%20site%3Atheblock.co%20OR%20site%3Adecrypt.co%20OR%20site%3Acryptoslate.com)%20when%3A7d&hl=en-US&gl=US&ceid=US:en"]
-
-  [[topics.crypto_watchlist.watch]]
-  ticker = "AVAX"
-  aliases = ["Avalanche"]
-  feeds = ["https://cointelegraph.com/rss/tag/avalanche"]
-  search_feeds = ["https://news.google.com/rss/search?q=Avalanche%20(site%3Acointelegraph.com%20OR%20site%3Atheblock.co%20OR%20site%3Adecrypt.co%20OR%20site%3Acryptoslate.com)%20when%3A7d&hl=en-US&gl=US&ceid=US:en"]
-
-  [[topics.crypto_watchlist.watch]]
-  ticker = "ENA"
-  aliases = ["Ethena"]
-  feeds = ["https://cryptoslate.com/news/ethena/feed/"]
-  search_feeds = ["https://news.google.com/rss/search?q=Ethena%20(site%3Acointelegraph.com%20OR%20site%3Atheblock.co%20OR%20site%3Adecrypt.co%20OR%20site%3Acryptoslate.com)%20when%3A7d&hl=en-US&gl=US&ceid=US:en"]
-
-[topics.ai_general]
-kind = "general"
-sources = ["rss", "polymarket", "hackernews"]
-rss_feeds = [
-  "https://www.deepmind.google/blog/rss.xml",
-  "https://openai.com/blog/rss.xml",
-  "https://simonwillison.net/atom/everything/",
-  "https://stratechery.com/feed/",
-  "https://www.ben-evans.com/benedictevans?format=rss",
-  "https://github.blog/feed/",
-  "https://huggingface.co/blog/feed.xml",
-]
-polymarket_tags = ["OpenAI", "Anthropic", "Claude", "AGI"]
-hn_keywords = ["LLM", "Claude", "GPT", "Anthropic", "OpenAI", "Gemini", "Grok", "xAI", "DeepMind", "agent", "RAG", "Hugging Face"]
-prompt_template = "ai_general.md"
-top_n = 15
-schedule = "0 5,17 * * *"
-```
+<!-- Omitted for brevity — see config.example.toml for the full reference. -->
 
 To add a topic: copy a block, change the id and fields, drop a matching prompt template in `aggregator/prompts/`, restart. No Python edits.
 
@@ -278,7 +204,7 @@ journalctl -u news-aggregator -f
 pytest -q
 ```
 
-All **179 tests run fully offline** — every network call (RSS, Polymarket, Hacker News, OpenAI, Telegram) is mocked via `respx` / `unittest.mock`. No keys or connectivity required to run the suite.
+All **186 tests run fully offline** — every network call (RSS, Polymarket, Hacker News, OpenAI, Telegram) is mocked via `respx` / `unittest.mock`. No keys or connectivity required to run the suite.
 
 ## 📁 Project layout
 
@@ -301,7 +227,7 @@ aggregator/
 │   └── commands/            # one file per command: status.py, digest.py, topics.py, help.py
 └── vendor/last30days/       # vendored upstream (MIT)
 deploy/                      # systemd unit + install guide
-tests/                       # 179 offline tests
+tests/                       # 186 offline tests
 ```
 
 ## 📄 Attribution & License
