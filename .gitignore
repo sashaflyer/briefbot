@@ -15,7 +15,7 @@ data/*.db-wal
 data/*.db-shm
 
 # Internal process docs (spec + implementation plan); kept local
-docs/superpowers/
+docs/
 
 # IDEs
 .vscode/
