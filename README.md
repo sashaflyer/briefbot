@@ -2,99 +2,101 @@
 
 # BriefBot
 
-**A self-hosted Telegram bot that delivers a twice-daily digest of what actually mattered — pulled from RSS feeds, Polymarket, Hacker News, and GitHub, deduplicated, ranked by engagement, and summarized into a short, readable brief by an LLM.**
+**Your personal AI news analyst. Twice-daily Telegram digests from RSS, Polymarket, Hacker News, and GitHub — deduplicated, ranked, and summarized by an LLM.**
 
 ![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
-![Tests](https://img.shields.io/badge/tests-186%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-214%20passing-brightgreen)
 ![Delivery](https://img.shields.io/badge/delivery-Telegram-26A5E4?logo=telegram&logoColor=white)
-![Status](https://img.shields.io/badge/status-running%20in%20prod-success)
+
+[Quickstart](#-quickstart) · [Features](#-features) · [How it works](#-how-it-works) · [Deploy](#-deployment) · [Extend](#-extending)
 
 </div>
 
 ---
 
-Built for personal use: one operator, one Telegram chat, one Linux VPS, fully config-driven topics. The defaults ship with crypto news, a **SOL / SUI / AVAX / ENA** watchlist, and AI/ML news — but adding a new digest stream is a config-only change, with zero code.
+## What is BriefBot?
 
-## Contents
+BriefBot is a self-hosted Telegram bot that reads the internet so you don't have to. It pulls from **RSS feeds**, **Polymarket prediction markets**, **Hacker News**, and **GitHub trending issues** — filters out duplicates and noise, ranks by real engagement, and delivers a short, readable brief to your Telegram twice a day.
 
-- [Example digest](#-example-digest)
-- [Features](#-features)
-- [Architecture](#-architecture)
-- [Quickstart](#-quickstart-local-development)
-- [Configuration](#-configuration)
-- [Extending](#-extending)
-- [Deployment](#-deployment)
-- [Tests](#-tests)
-- [Project layout](#-project-layout)
-- [Attribution & License](#-attribution--license)
-
-## 📬 Example digest
+No editors. No algorithms. No paywalls. Just signal.
 
 ```
 📰 What moved
 
-Bitcoin closed above $200K for the first time on heavy spot-ETF demand;
-Polymarket is pricing in further upside. Solana shipped a throughput upgrade.
+Bitcoin closed above $200K on record ETF inflows. Polymarket odds
+on a year-end $250K target jumped to 35%. Solana shipped a major
+throughput upgrade.
 
 🎯 Top stories
 
-• Bitcoin closes above $200K after record pension-fund ETF inflows. ↗  (CoinDesk)
-• Solana ships throughput upgrade; validators report faster finality. ↗  (Cointelegraph)
-• The Block: spot-ETF net inflows hit a single-day record. ↗  (The Block)
+• Bitcoin closes above $200K after record pension-fund ETF inflows. ↗
+• Solana ships throughput upgrade; validators report faster finality. ↗
+• Spot-ETF net inflows hit a single-day record of $4.2B. ↗
 
 📊 Polymarket signals
 
-• "Will BTC reach $250K by year end?" trades at 35% with rising volume. ↗
+• "BTC above $250K by year end" trades at 35%, up 12 points on $8M volume. ↗
+• "Fed cuts rates by September FOMC" sits at 62%, up 9 points week-over-week. ↗
 ```
 
-*(Each `↗` is a clickable link to the source.)*
+Each `↗` is a clickable link to the source.
 
 ## ✨ Features
 
-- **Four config-driven topics** — crypto general, crypto watchlist, AI/ML news, and a broad tech-blog digest (90+ Karpathy-curated feeds).
-- **Three keyless live sources** — RSS feeds (broad crypto outlets + per-coin tag feeds), Polymarket (Gamma event search), and Hacker News (Algolia search). No API keys, quotas, or accounts to get revoked.
-- **Per-coin watchlist** — each tracked symbol pulls from its own RSS tag feed and is bucketed by an explicit source tag, so a "Solana …" headline still lands under `SOL`.
-- **Near-duplicate removal** within each digest (Jaccard similarity over n-grams).
-- **Per-author cap** so no single author dominates a digest.
-- **Cross-run memory** — anything delivered in a previous digest within `dedup_window_days` is filtered out, so the evening run never repeats the morning's.
-- **Heartbeat fallback** when nothing new survives the filter, so you always get a signal the bot is alive.
-- **Data-driven topics** — a new digest stream (geopolitics, climate, a different watchlist) is a single `[topics.<id>]` block in `config.toml`. No Python.
-- **`systemd`-managed** with `Type=notify` + watchdog and auto-restart, so a wedged event loop self-heals.
-- **HTML Telegram delivery** with an automatic plain-text fallback if the LLM emits malformed markup — never a silent failure.
-- **Bot command surface** — `/status`, `/digest`, `/topics`, `/help`, with a one-line extension pattern. `/digest <topic_id>` triggers a real run on demand; a per-topic lock keeps it from racing the scheduler.
-- **186 offline tests** covering pipeline, sources, scoring, dedup, synthesis, delivery, scheduling, and the bot.
+**5 config-driven topics** — no code changes needed to add more:
 
-## 📐 Architecture
+| Topic | What it covers | Sources |
+|-------|---------------|---------|
+| `ai_general` | AI/ML industry news | RSS, Polymarket, HN |
+| `ai_blogs` | 90+ Karpathy-curated tech blogs | RSS |
+| `crypto_general` | Crypto market news | RSS, Polymarket, HN |
+| `crypto_watchlist` | SOL, SUI, AVAX, ENA per-coin tracking | RSS, Polymarket, HN |
+| `github_trending` | Trending AI/ML issues and PRs | GitHub Search API |
+
+**What makes it different:**
+
+- **Per-source engagement scoring** — HN points, Polymarket volume, and GitHub reactions are weighted differently using log-scaled scores with quality multipliers.
+- **Near-duplicate removal** — Jaccard similarity over n-grams catches the same story across different outlets.
+- **Cross-run memory** — anything delivered in the last 7 days is filtered out. Morning and evening digests never repeat.
+- **Per-author cap** — no single author or outlet can dominate a digest.
+- **Heartbeat fallback** — when nothing new survives, you still get a "no new items" signal so you know the bot is alive.
+- **HTML delivery with fallback** — if the LLM emits malformed markup, BriefBot retries as plain text. Never a silent failure.
+- **`systemd` watchdog** — a wedged event loop self-heals after 180 seconds.
+
+**Bot commands:**
+
+| Command | What it does |
+|---------|-------------|
+| `/status` | Uptime, last runs, source health |
+| `/digest <topic>` | Run a digest now |
+| `/topics` | List configured topics |
+| `/help` | List commands |
+
+## 🔧 How it works
 
 ```
-                ┌──────────────────────────────────────────────────────────┐
-                │  long-running async Python process (systemd-managed)      │
-                │                                                            │
-  cron tick ───►│  APScheduler ──┐                                          │
-                │                │                                           │
-                │                ▼                                           │
-                │   ┌──────── pipeline.run_digest(topic) ──────────┐        │
-                │   │ fetch (rss, polymarket, hackernews)          │        │
-                │   │ → filter recently-delivered URLs             │        │
-                │   │ → dedupe near-duplicates                     │        │
-                │   │ → sort by engagement, per-author cap         │        │
-                │   │ → synthesize with OpenAI (gpt-5.x-mini)      │        │
-                │   │ → deliver to Telegram (HTML, with fallback)  │        │
-                │   │ → record delivered URLs to SQLite            │        │
-                │   └───────────────────────────────────────────────┘        │
-                │                                                            │
-  /status ────►│  python-telegram-bot polling loop                          │
-                │                                                            │
-                └──────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                       SQLite (aggregator.db)
-                       — topics, run_history, delivered_findings
-                       — source_health, digest_log
+    ┌─────────────────────────────────────────────────────┐
+    │  BriefBot (long-running async Python process)       │
+    │                                                     │
+    │  APScheduler ──► pipeline.run_digest(topic)         │
+    │                     │                               │
+    │                     ├─ fetch sources (async)        │
+    │                     ├─ filter delivered URLs        │
+    │                     ├─ deduplicate (Jaccard)        │
+    │                     ├─ score + rank (engagement)    │
+    │                     ├─ synthesize (OpenAI LLM)      │
+    │                     ├─ deliver (Telegram HTML)      │
+    │                     └─ record to SQLite             │
+    │                                                     │
+    │  python-telegram-bot ◄── /status, /digest, /topics  │
+    └─────────────────────────────────────────────────────┘
+                          │
+                          ▼
+                   SQLite (aggregator.db)
 ```
 
-## 🚀 Quickstart (local development)
+## 🚀 Quickstart
 
 Requires **Python 3.12+**.
 
@@ -102,63 +104,63 @@ Requires **Python 3.12+**.
 git clone https://github.com/sashaflyer/news-aggregator-bot.git
 cd news-aggregator-bot
 python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\Activate.ps1
+source .venv/bin/activate              # Windows: .venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
-python scripts/vendor_last30days.py     # fetches MIT-licensed upstream modules
+python scripts/vendor_last30days.py    # fetches MIT-licensed upstream modules
 cp config.example.toml config.toml
 cp .env.example .env
-# edit config.toml (timezone, topics) and .env (OpenAI + Telegram tokens)
+```
+
+Edit `config.toml` (topics, timezone) and `.env` (API keys), then:
+
+```bash
 python -m aggregator run --topic crypto_general   # one-shot test
 python -m aggregator                               # long-running mode
 ```
 
-You'll need:
+**You'll need:**
 
-- An **OpenAI API key** (any model supporting `chat.completions` + `max_completion_tokens`).
-- A **Telegram bot token** from [@BotFather](https://t.me/BotFather).
-- Your numeric **Telegram chat ID** (message the bot, then `curl https://api.telegram.org/bot<TOKEN>/getUpdates`).
+| What | Where |
+|------|-------|
+| OpenAI API key | [platform.openai.com](https://platform.openai.com) |
+| Telegram bot token | [@BotFather](https://t.me/BotFather) on Telegram |
+| Telegram chat ID | Message your bot, then `curl https://api.telegram.org/bot<TOKEN>/getUpdates` |
+| GitHub token (optional) | [github.com/settings/tokens](https://github.com/settings/tokens) — no scopes needed, for `github_trending` topic |
 
-## 🔧 Configuration
+## 📦 Deployment
 
-Two files, both gitignored:
+Full guide: [`deploy/README.md`](deploy/README.md)
 
-| File | Holds | Template |
-|------|-------|----------|
-| `config.toml` | non-secret preferences (topics, schedule, scoring, model) | `config.example.toml` |
-| `.env` | secrets (API keys, bot tokens) | `.env.example` |
+```bash
+# One-time setup
+sudo useradd -r -s /usr/sbin/nologin news-bot
+sudo mkdir -p /opt/news-aggregator /var/lib/news-aggregator
+sudo chown -R news-bot:news-bot /opt/news-aggregator /var/lib/news-aggregator
+sudo -u news-bot git clone https://github.com/sashaflyer/news-aggregator-bot.git /opt/news-aggregator
+cd /opt/news-aggregator
+sudo -u news-bot python3 -m venv .venv && sudo -u news-bot .venv/bin/pip install -e .
+sudo -u news-bot cp config.example.toml config.toml && sudo -u news-bot $EDITOR config.toml
+sudo -u news-bot cp .env.example .env && sudo -u news-bot $EDITOR .env
+sudo cp deploy/news-aggregator.service /etc/systemd/system/
+sudo systemctl enable --now news-aggregator
 
-### Topic configuration
-
-Each digest is one `[topics.<id>]` table. [config.toml](config.toml) ships with four topics covering crypto and AI, staggered across the morning and evening windows:
-
-| Time | Topic | Sources |
-|------|-------|---------|
-| 05:00 / 17:00 | `ai_general` | RSS, Polymarket, HN |
-| 05:05 / 17:05 | `ai_blogs` | 90+ Karpathy-curated tech blogs (RSS only) |
-| 05:10 / 17:10 | `crypto_general` | RSS, Polymarket, HN |
-| 05:15 / 17:15 | `crypto_watchlist` | RSS (per-coin feeds), Polymarket, HN |
-
-<!-- Omitted for brevity — see config.example.toml for the full reference. -->
-
-To add a topic: copy a block, change the id and fields, drop a matching prompt template in `aggregator/prompts/`, restart. No Python edits.
-
-> **Schedule note:** cron expressions are interpreted in `[schedule].timezone`. Pin it to `"UTC"` (or any IANA zone) — the scheduler passes the configured zone explicitly, so fire times don't drift with the host clock.
+# Updating
+cd /opt/news-aggregator
+sudo -u news-bot git pull
+sudo -u news-bot .venv/bin/pip install -e .
+sudo -u news-bot .venv/bin/python scripts/merge_config.py
+sudo systemctl restart news-aggregator
+```
 
 ## 🧩 Extending
 
+### Add a topic (zero code)
+
+Add a `[topics.<id>]` block to `config.toml` and a prompt template in `aggregator/prompts/`. Restart. That's it.
+
 ### Add a bot command
 
-```python
-# aggregator/bot/commands/ping.py
-from aggregator.bot._authz import is_authorized
-
-async def handle_ping(update, context):
-    if not is_authorized(update, context):
-        return
-    await update.message.reply_text("pong")
-```
-
-Register it with one line in `aggregator/bot/app.py`:
+Create `aggregator/bot/commands/<name>.py`, register it in `aggregator/bot/app.py`:
 
 ```python
 COMMANDS = [
@@ -170,33 +172,11 @@ COMMANDS = [
 ]
 ```
 
-`/help` and the Telegram `/` autocomplete menu (`setMyCommands` at startup) both read from `COMMANDS`, so the command appears everywhere automatically.
+`/help` and Telegram's `/` autocomplete both read from `COMMANDS` automatically.
 
 ### Add a source
 
-Create `aggregator/sources/<name>.py` implementing the `Source` ABC from `aggregator/sources/base.py` — a single `async def fetch(self, queries) -> list[Item]`. Register it in `aggregator/pipeline.SOURCES`. See `aggregator/sources/rss.py` or `hn.py` for the pattern.
-
-### Add a topic
-
-See the config example above — pure config plus one prompt template file.
-
-## 📦 Deployment
-
-See [`deploy/README.md`](deploy/README.md) for the full VPS install (Debian / Ubuntu, `systemd` unit, dedicated `news-bot` system user). High level:
-
-```bash
-sudo useradd -r -s /usr/sbin/nologin news-bot
-sudo mkdir -p /opt/news-aggregator /var/lib/news-aggregator
-sudo chown -R news-bot:news-bot /opt/news-aggregator /var/lib/news-aggregator
-sudo -u news-bot git clone https://github.com/sashaflyer/news-aggregator-bot.git /opt/news-aggregator
-cd /opt/news-aggregator
-sudo -u news-bot python3 -m venv .venv && sudo -u news-bot .venv/bin/pip install -e .
-sudo -u news-bot cp config.example.toml config.toml && sudo -u news-bot $EDITOR config.toml
-sudo -u news-bot cp .env.example .env && sudo -u news-bot $EDITOR .env
-sudo cp deploy/news-aggregator.service /etc/systemd/system/
-sudo systemctl enable --now news-aggregator
-journalctl -u news-aggregator -f
-```
+Create `aggregator/sources/<name>.py` implementing the `Source` ABC. Register in `pipeline.SOURCES`. See `rss.py` or `github.py` for the pattern.
 
 ## 🧪 Tests
 
@@ -204,34 +184,30 @@ journalctl -u news-aggregator -f
 pytest -q
 ```
 
-All **186 tests run fully offline** — every network call (RSS, Polymarket, Hacker News, OpenAI, Telegram) is mocked via `respx` / `unittest.mock`. No keys or connectivity required to run the suite.
+**214 tests, fully offline.** Every network call (RSS, Polymarket, HN, GitHub, OpenAI, Telegram) is mocked. No keys or connectivity required.
 
 ## 📁 Project layout
 
 ```
 aggregator/
-├── __main__.py              # entry point: bot polling + scheduler in one event loop
-├── config.py                # pydantic-validated config loader
-├── pipeline.py              # run_digest orchestration
-├── storage.py               # SQLite layer (project tables + vendored schema)
-├── scheduler.py             # APScheduler cron registration (timezone-explicit)
-├── synth.py                 # OpenAI synthesis (prompt build + snippet trim)
-├── relevance.py             # watchlist off-topic filter
-├── prompts/                 # per-topic LLM prompts
-├── sources/                 # one file per source: rss.py, polymarket.py, hn.py
-├── delivery/telegram.py     # HTML mode with plain-text fallback
-├── bot/
-│   ├── app.py               # PTB Application factory + COMMANDS registry
-│   ├── _authz.py            # shared chat-id authorization check
-│   ├── digest_lock.py       # per-topic asyncio.Lock (scheduler ↔ /digest)
-│   └── commands/            # one file per command: status.py, digest.py, topics.py, help.py
-└── vendor/last30days/       # vendored upstream (MIT)
-deploy/                      # systemd unit + install guide
-tests/                       # 186 offline tests
+├── __main__.py           # entry: bot polling + scheduler in one event loop
+├── pipeline.py           # run_digest orchestration
+├── config.py             # pydantic-validated config loader
+├── storage.py            # SQLite layer
+├── scheduler.py          # APScheduler cron (timezone-explicit)
+├── synth.py              # OpenAI synthesis
+├── relevance.py          # watchlist off-topic filter
+├── sources/              # rss.py, polymarket.py, hn.py, github.py
+├── delivery/             # telegram.py + HTML sanitizer
+├── prompts/              # per-topic LLM prompt templates
+├── bot/                  # PTB Application + commands
+└── vendor/last30days/    # MIT-licensed upstream — do not hand-edit
+deploy/                   # systemd unit + install guide
+tests/                    # 214 offline tests
 ```
 
-## 📄 Attribution & License
+## 📄 License
 
-Built on [`mvanhorn/last30days-skill`](https://github.com/mvanhorn/last30days-skill) (MIT) — the fetching, scoring, deduplication, and storage modules are vendored under [`aggregator/vendor/last30days/`](aggregator/vendor/last30days/), with provenance recorded in [`UPSTREAM.md`](aggregator/vendor/last30days/UPSTREAM.md). Thanks to the upstream authors for solving the hard parts.
+MIT License. See [`LICENSE`](LICENSE).
 
-Released under the **MIT License** — see [`LICENSE`](LICENSE).
+Built on [`mvanhorn/last30days-skill`](https://github.com/mvanhorn/last30days-skill) (MIT) — vendored under [`aggregator/vendor/last30days/`](aggregator/vendor/last30days/).
