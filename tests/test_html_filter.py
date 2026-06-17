@@ -19,11 +19,15 @@ def test_drops_non_http_href():
     assert "<a" not in out
 
 
-def test_keeps_code_and_i():
+def test_strips_i_code_pre():
     out = sanitize_outgoing("<i>italic</i> <code>x</code> <pre>y</pre>")
-    assert "<i>italic</i>" in out
-    assert "<code>x</code>" in out
-    assert "<pre>y</pre>" in out
+    # Tags stripped; text content preserved.
+    assert "<i>" not in out
+    assert "<code>" not in out
+    assert "<pre>" not in out
+    assert "italic" in out
+    assert "x" in out
+    assert "y" in out
 
 
 def test_passthrough_when_no_tags():

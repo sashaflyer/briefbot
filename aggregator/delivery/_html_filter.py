@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-ALLOWED_TAGS = frozenset({"b", "i", "u", "s", "a", "code", "pre", "strong", "em"})
+ALLOWED_TAGS = frozenset({"b", "a"})
 _TAG_RE = re.compile(r"<(/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*)>")
 _HREF_RE = re.compile(r'href="(https?://[^"]+)"')
 

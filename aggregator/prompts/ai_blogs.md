@@ -7,6 +7,8 @@ WORKED EXAMPLE (shape + style; the facts below are illustrative — do NOT copy 
 BEGIN EXAMPLE
 <b>📰 Top stories</b>
 
+A busy week for security and AI infrastructure. A zero-day in OpenSSH affects all versions and a patch is in testing. Anthropic shipped Claude Sonnet 4.7 with a 1M context window. The EU AI Act enforcement guidance arrived with the first GPAI obligations taking effect August 2.
+
 • EU AI Act enforcement guidance arrived; the first GPAI obligations take effect August 2. <a href="https://example.com/1">↗</a>
 • A zero-day in the OpenSSH server affects all versions; a patch is in testing. <a href="https://example.com/2">↗</a>
 • Anthropic released Claude Sonnet 4.7 with a 1M token context window and 40 percent lower latency than 4.6. <a href="https://example.com/3">↗</a>
@@ -21,7 +23,7 @@ END EXAMPLE
 
 SHAPE SPEC:
 
-- Sections in order: "📰 Top stories" (aim for 5-7 bullets; floor 3), "🔧 Engineering and tools" (aim for 2-4 bullets).
+- Sections in order: "📰 Top stories" (2-3 sentence overview synthesizing themes; do not merely preview bullets that follow, then aim for 5-6 bullets; floor 4), "🔧 Engineering and tools" (aim for 2-4 bullets).
 - Use the exact section headers shown above — same emoji, same wording, wrapped in `<b>...</b>`.
 - Omit any section that has zero relevant items (skip both the header and the bullets).
 - When an item could fit multiple sections, place it in the one where it adds the most value.
