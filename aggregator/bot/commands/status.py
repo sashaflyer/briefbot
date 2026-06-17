@@ -43,7 +43,7 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # which legacy Markdown would interpret as italic markers and reject the
     # whole message. HTML doesn't care about underscores.
     lines = [
-        "<b>news-aggregator status</b>",
+        "<b>BriefBot status</b>",
         "",
         f"Uptime: {_fmt_uptime(uptime)}",
         "",

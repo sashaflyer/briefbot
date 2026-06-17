@@ -1,8 +1,8 @@
 <div align="center">
 
-# 📰 news-aggregator-bot
+# BriefBot
 
-**A self-hosted Telegram bot that delivers a twice-daily digest of what actually mattered — pulled from RSS feeds, Polymarket, and Hacker News, deduplicated, ranked by engagement, and summarized into a short, readable brief by an LLM.**
+**A self-hosted Telegram bot that delivers a twice-daily digest of what actually mattered — pulled from RSS feeds, Polymarket, Hacker News, and GitHub, deduplicated, ranked by engagement, and summarized into a short, readable brief by an LLM.**
 
 ![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-yellow)

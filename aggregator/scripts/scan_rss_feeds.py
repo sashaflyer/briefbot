@@ -29,7 +29,7 @@ import httpx
 from aggregator.config import load_config
 
 
-_UA = "Mozilla/5.0 (compatible; news-aggregator/0.1; +rss)"
+_UA = "Mozilla/5.0 (compatible; briefbot/0.2; +rss)"
 _TIMEOUT_S = 20.0
 _SLOW_THRESHOLD_S = 10.0
 _CONCURRENCY = 8

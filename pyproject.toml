@@ -1,5 +1,5 @@
 [project]
-name = "news-aggregator"
+name = "briefbot"
 version = "0.2.0"
 description = "Personal AI crypto research aggregator with Telegram delivery"
 requires-python = ">=3.12"
@@ -22,7 +22,7 @@ dev = [
 ]
 
 [project.scripts]
-news-aggregator = "aggregator.__main__:main"
+briefbot = "aggregator.__main__:main"
 
 [build-system]
 requires = ["setuptools>=68"]

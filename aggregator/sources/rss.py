@@ -35,7 +35,7 @@ from aggregator.sources._common import matches_any_symbol
 
 log = logging.getLogger(__name__)
 
-_UA = "Mozilla/5.0 (compatible; news-aggregator/0.1; +rss)"
+_UA = "Mozilla/5.0 (compatible; briefbot/0.2; +rss)"
 _RECENCY_BASE = 200.0
 # Per-fetch HTTP timeout. Kept short enough that a wedged server doesn't
 # block the whole batch; long enough to tolerate slow RSS endpoints.

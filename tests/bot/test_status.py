@@ -67,8 +67,8 @@ async def test_status_authorized_chat_replies(storage):
     # would break legacy Markdown).
     assert call.kwargs.get("parse_mode") == "HTML"
     # Must not emit Markdown-style markup that would render as literal asterisks.
-    assert "*news-aggregator" not in text
-    assert "<b>news-aggregator status</b>" in text
+    assert "*BriefBot" not in text
+    assert "<b>BriefBot status</b>" in text
 
 
 @pytest.mark.asyncio

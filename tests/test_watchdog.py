@@ -52,7 +52,7 @@ def test_sd_notify_supports_abstract_socket(monkeypatch):
     if sys.platform != "linux":
         pytest.skip("abstract unix sockets are Linux-only")
 
-    name = "\0test-news-aggregator-notify"
+    name = "\0test-briefbot-notify"
     server = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     server.bind(name)
     server.settimeout(2.0)

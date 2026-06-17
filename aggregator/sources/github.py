@@ -30,7 +30,7 @@ from aggregator.sources.base import Item, Source
 log = logging.getLogger(__name__)
 
 _SEARCH_URL = "https://api.github.com/search/issues"
-_USER_AGENT = "news-aggregator/0.1"
+_USER_AGENT = "briefbot/0.2"
 _HTTP_TIMEOUT_S = 15.0
 # Per-keyword result cap. Keeps the pipeline bounded while still surfacing
 # the most-engaged items. 15 matches the HN adapter's default.

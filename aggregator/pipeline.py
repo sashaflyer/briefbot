@@ -307,7 +307,7 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
     fetched = len(items)
     if ok_count == 0:
         fallback_msg = (
-            f"news-aggregator: all sources failed for topic "
+            f"BriefBot: all sources failed for topic "
             f"<code>{html.escape(topic_id)}</code>. "
             f"Check source_health and logs."
         )
@@ -385,7 +385,7 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
     if not ranked:
         log.info("no new items to deliver for %s; sending heartbeat", topic_id)
         message_text = (
-            f"news-aggregator: no new items for "
+            f"BriefBot: no new items for "
             f"<code>{html.escape(topic_id)}</code> "
             f"in the last {cfg.scoring.dedup_window_days} days "
             f"(fetched {fetched}, all previously delivered or filtered)"
@@ -414,7 +414,7 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
         # html.escape because send_digest uses parse_mode=HTML; raw < > & in
         # the exception message would otherwise force the plain-text fallback.
         message_text = (
-            f"news-aggregator: digest for {html.escape(topic_id)} "
+            f"BriefBot: digest for {html.escape(topic_id)} "
             f"failed during synthesis: {html.escape(str(e))}"
         )
         msg_ids = await send_digest(message_text, topic_id=topic_id, cfg=cfg)

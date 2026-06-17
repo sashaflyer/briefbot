@@ -141,7 +141,7 @@ def main() -> None:
     # NOTE: --topic choices aren't restricted in argparse because the topic set
     # is loaded from config at runtime. We validate post-load and exit 2 with
     # a clear message if the topic is unknown (mimicking argparse's behavior).
-    parser = argparse.ArgumentParser(prog="news-aggregator")
+    parser = argparse.ArgumentParser(prog="briefbot")
     parser.add_argument("--config", default="config.toml")
     sub = parser.add_subparsers(dest="cmd")
 
