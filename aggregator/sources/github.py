@@ -66,7 +66,8 @@ async def _search_github(
     by stars (most popular first).
     """
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
-    q = f"{query} pushed:>{since}"
+    sanitized_query = urllib.parse.quote(query, safe="")
+    q = f"{sanitized_query} pushed:>{since}"
     params = urllib.parse.urlencode({
         "q": q,
         "sort": "stars",

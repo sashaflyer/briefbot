@@ -30,13 +30,14 @@ def _extract_topic_block(text: str, topic: str) -> str:
     (or end-of-file). Nested ``[[topics.<topic>....]]`` arrays are included.
     """
     header = _topic_header(topic)
-    start = text.find(f"\n{header}\n")
-    if start == -1:
-        # Might be at the very start of the file (unlikely but defensive).
-        start = text.find(f"{header}\n")
-        if start == -1:
-            return ""
-    start += 1  # skip leading newline
+    # Use regex that matches header at start of line followed by newline
+    # to avoid false-matching prefix names (e.g., crypto_general matching
+    # inside crypto_general_extra).
+    pattern = re.compile(rf"^{re.escape(header)}\s*$", re.MULTILINE)
+    match = pattern.search(text)
+    if not match:
+        return ""
+    start = match.start() + 1  # skip leading newline
 
     # Find the next top-level section header after this block.
     rest = text[start + len(header) + 1:]
@@ -52,13 +53,13 @@ def merge_topics(live_path: Path) -> list[str]:
 
     Returns a list of topic names that were added.
     """
-    example_text = EXAMPLE.read_text(encoding="utf-8")
-    live_text = live_path.read_text(encoding="utf-8")
-
-    with open(EXAMPLE, "rb") as f:
-        example_cfg = tomllib.load(f)
-    with open(live_path, "rb") as f:
-        live_cfg = tomllib.load(f)
+    # Read once and reuse for both text operations and TOML parsing.
+    example_bytes = EXAMPLE.read_bytes()
+    live_bytes = live_path.read_bytes()
+    example_text = example_bytes.decode("utf-8")
+    live_text = live_bytes.decode("utf-8")
+    example_cfg = tomllib.loads(example_text)
+    live_cfg = tomllib.loads(live_text)
 
     example_topics = set(example_cfg.get("topics", {}))
     live_topics = set(live_cfg.get("topics", {}))

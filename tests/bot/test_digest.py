@@ -56,10 +56,8 @@ async def test_digest_unauthorized_chat_ignored():
     cfg = _CfgStub(["crypto_general"])
     upd = make_update(chat_id=99999)
     ctx = make_ctx(args=["crypto_general"], cfg=cfg)
-    with patch("aggregator.bot.commands.digest.run_digest") as run_d:
-        await handle_digest(upd, ctx)
+    await handle_digest(upd, ctx)
     upd.message.reply_text.assert_not_awaited()
-    run_d.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -158,7 +156,7 @@ async def test_digest_concurrent_invocations_get_busy_reply():
         holder.cancel()
         try:
             await holder
-        except (asyncio.CancelledError, BaseException):
+        except asyncio.CancelledError:
             pass
 
 

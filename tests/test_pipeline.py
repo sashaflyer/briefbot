@@ -24,7 +24,7 @@ def make_item(source: str, idx: int) -> Item:
 @pytest.fixture
 def cfg(tmp_path):
     cfg_path = tmp_path / "config.toml"
-    cfg_path.write_text(open("config.example.toml", encoding="utf-8").read())
+    cfg_path.write_text(Path("config.example.toml").read_text(encoding="utf-8"))
     return load_config(cfg_path)
 
 

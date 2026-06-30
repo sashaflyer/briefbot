@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from typing import Any
 
 import httpx
@@ -22,6 +23,7 @@ _TG_HARD_LIMIT_UTF16 = 4096
 _SUFFIX_RESERVE = 32  # leaves room for "\n\n<i>(NN/NN)</i>" page counter.
 _RETRIES = 3
 _BACKOFF_BASE = 2.0
+_MAX_RETRY_DURATION = 300  # 5 minutes max for all retries
 # 4xx responses Telegram won't change its mind on — don't waste retries.
 # 401: bad token (rotated/revoked). 403: bot blocked or kicked. 404: bad chat id.
 _NON_RETRIABLE_STATUSES = frozenset({401, 403, 404})
@@ -74,11 +76,14 @@ async def _send_one(client: httpx.AsyncClient, token: str, chat_id: str,
         "parse_mode": parse_mode,
         "disable_web_page_preview": True,
     }
+    start = time.monotonic()
     for attempt in range(1, _RETRIES + 1):
         try:
             resp = await _post(client, token, payload)
-            if resp.status_code == 200 and resp.json().get("ok"):
-                return resp.json()["result"]["message_id"]
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("ok"):
+                    return data["result"]["message_id"]
 
             # Markdown rejection — one-shot retry as plain text so the chunk
             # still goes out. We do not loop here; either the plain-text send
@@ -96,8 +101,10 @@ async def _send_one(client: httpx.AsyncClient, token: str, chat_id: str,
                     fallback["text"],
                 )
                 resp2 = await _post(client, token, fallback)
-                if resp2.status_code == 200 and resp2.json().get("ok"):
-                    return resp2.json()["result"]["message_id"]
+                if resp2.status_code == 200:
+                    data2 = resp2.json()
+                    if data2.get("ok"):
+                        return data2["result"]["message_id"]
                 log.warning("telegram plain-text fallback also failed: %s %s",
                             resp2.status_code, resp2.text[:200])
                 return None
@@ -106,6 +113,9 @@ async def _send_one(client: httpx.AsyncClient, token: str, chat_id: str,
             # parameters.retry_after. A fixed exponential backoff can be
             # shorter than that wait, which just extends the ban.
             if resp.status_code == 429:
+                if time.monotonic() - start > _MAX_RETRY_DURATION:
+                    log.warning("exceeded max retry duration for chunk")
+                    break
                 try:
                     retry_after = float(
                         resp.json().get("parameters", {}).get("retry_after", 0)
@@ -162,15 +172,14 @@ async def send_digest(text: str, *, topic_id: str, cfg: Config) -> list[int]:
                           "(dropped %d remaining chunk(s), first %d chars: %r)",
                           i + 1, total, total - i - 1,
                           len(body), body[:200])
-                if mid is None:
-                    try:
-                        notice = f"Digest truncated: chunk {i+1}/{total} failed. {total - i - 1} chunk(s) dropped."
-                        await _post(client, token, {
-                            "chat_id": chat_id,
-                            "text": notice,
-                            "disable_web_page_preview": True,
-                        })
-                    except Exception:
-                        pass
+                try:
+                    notice = f"Digest truncated: chunk {i+1}/{total} failed. {total - i - 1} chunk(s) dropped."
+                    await _post(client, token, {
+                        "chat_id": chat_id,
+                        "text": notice,
+                        "disable_web_page_preview": True,
+                    })
+                except Exception:
+                    pass
                 break
     return ids

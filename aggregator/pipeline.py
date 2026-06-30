@@ -30,6 +30,8 @@ from aggregator.delivery.telegram import send_digest
 
 log = logging.getLogger(__name__)
 
+_PRE_CAP_MULTIPLIER = 4  # Safety margin for pre-dedup cap
+
 # Source registry: keys MUST match KNOWN_SOURCE_KEYS from sources.registry.
 # Adding a new source = (1) define the adapter, (2) add the key to
 # KNOWN_SOURCE_KEYS (aggregator/sources/registry.py), (3) add the instance
@@ -140,7 +142,11 @@ async def _deliver_and_record(
             f"BriefBot: digest for {html.escape(topic_id)} "
             f"failed during synthesis: {html.escape(str(e))}"
         )
-        msg_ids = await send_digest(message_text, topic_id=topic_id, cfg=cfg)
+        try:
+            msg_ids = await send_digest(message_text, topic_id=topic_id, cfg=cfg)
+        except Exception:
+            log.exception("failed to send error notification for %s", topic_id)
+            msg_ids = []
         storage.log_digest(run_id=run_id, topic_id=topic_id, message_text=message_text,
                            telegram_message_ids=msg_ids, at=datetime.now(timezone.utc))
         storage.finish_run(run_id, status="error", items_fetched=fetched,
@@ -206,10 +212,14 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
     recent_urls = storage.recently_delivered_urls(topic_id=topic_id, since=since)
     if recent_urls:
         before = len(items)
-        items = [
-            it for it in items
-            if dedup_key({"url": it.url, "id": it.id}) not in recent_urls
-        ]
+        filtered = []
+        for it in items:
+            key = dedup_key({"url": it.url, "id": it.id})
+            if key is None:
+                continue
+            if key not in recent_urls:
+                filtered.append(it)
+        items = filtered
         log.info("filtered %d previously-delivered items; %d remain",
                  before - len(items), len(items))
 
@@ -227,7 +237,7 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
             per_author_cap=cfg.scoring.per_author_cap, scoring=cfg.scoring,
         )
     else:
-        pre_cap = topic.per_symbol_top_n * len(topic.canonical_symbols) * 4
+        pre_cap = topic.per_symbol_top_n * len(topic.canonical_symbols) * _PRE_CAP_MULTIPLIER
         ranked = await asyncio.to_thread(
             _score_and_dedup, items, top_n=pre_cap,
             per_author_cap=cfg.scoring.per_author_cap, scoring=cfg.scoring,

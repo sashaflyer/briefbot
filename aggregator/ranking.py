@@ -46,6 +46,8 @@ def engagement_score(item: Item, *, scoring: "Config | None" = None) -> float:
     raw = item.engagement_raw
     source = item.source
 
+    # Per-source engagement weights. These could be moved to ScoringConfig
+    # if different operators want different source priorities.
     per_source: dict[str, list[tuple[str, float]]] = {
         "hackernews":  [("points", 0.55), ("comments", 0.45)],
         "polymarket":  [("volume", 0.60), ("liquidity", 0.40)],
@@ -122,11 +124,8 @@ def apply_per_author_cap(items: list[Item], cap: int) -> list[Item]:
     out: list[Item] = []
     dropped = 0
     for it in items:
-        author = (it.metadata.get("author") or "").strip()
-        if not author:
-            out.append(it)
-            continue
-        key = (it.source, author)
+        effective_author = (it.metadata.get("author") or "").strip() or "__anonymous__"
+        key = (it.source, effective_author)
         if counts.get(key, 0) >= cap:
             dropped += 1
             continue

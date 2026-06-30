@@ -102,7 +102,9 @@ def _query_for_topic(topic_id: str, cfg: Config) -> str:
     catch either form. For general topics, prefer hn_keywords ->
     polymarket_tags -> a generic fallback.
     """
-    topic = cfg.topics[topic_id]
+    topic = cfg.topics.get(topic_id)
+    if topic is None:
+        raise ValueError(f"Unknown topic: {topic_id}")
     if topic.kind == "watchlist":
         # Discriminated union: `topic` is WatchlistTopicConfig here.
         return " ".join(topic.query_symbols)

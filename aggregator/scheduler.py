@@ -27,6 +27,7 @@ async def _job(topic_id: str, cfg: Config, storage: Storage) -> None:
 def build_scheduler(cfg: Config, storage: Storage) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=cfg.schedule.timezone)
     for topic in storage.list_topics():
+        # Vendored schema provides this column; default to enabled if missing.
         if not topic.get("enabled", 1):
             continue
         # Pass the configured tz explicitly: from_crontab() otherwise bakes in

@@ -46,7 +46,7 @@ async def test_cli_oneshot_runs_pipeline(tmp_path, monkeypatch):
 
     fake.assert_awaited_once()
     kwargs = fake.await_args.kwargs
-    assert kwargs.get("trigger") == "command" or "command" in fake.await_args.args
+    assert kwargs.get("trigger") == "command"
 
 
 @pytest.mark.asyncio

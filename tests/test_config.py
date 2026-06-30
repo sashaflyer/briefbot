@@ -229,7 +229,7 @@ def test_topic_config_rejects_unknown_field():
             top_n=15,
             schedule="0 8 * * *",
         )
-    assert "sbreddits" in str(exc.value).lower() or "extra" in str(exc.value).lower()
+    assert "sbreddits" in str(exc.value).lower()
 
 
 def test_topic_config_rejects_nonsense_cron():

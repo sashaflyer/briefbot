@@ -11,7 +11,7 @@ import re
 
 ALLOWED_TAGS = frozenset({"b", "a", "i", "code", "pre"})
 _TAG_RE = re.compile(r"<(/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*)>")
-_HREF_RE = re.compile(r'href="(https?://[^"]+)"')
+_HREF_RE = re.compile(r"""<a\s[^>]*?href=(["'])(.*?)\1[^>]*?>""", re.I)
 
 
 def sanitize_outgoing(text: str) -> str:
@@ -21,6 +21,7 @@ def sanitize_outgoing(text: str) -> str:
     text content is preserved. Anchor tags with non-http(s) hrefs (e.g.
     `javascript:`) are stripped entirely (both open and close). Orphaned
     closing </a> tags (without a preceding valid open) are also removed.
+    Nested anchor tags are stripped (Telegram may render them unpredictably).
     """
     a_open_depth = 0
 
@@ -37,6 +38,8 @@ def sanitize_outgoing(text: str) -> str:
                 return ""
             href = _HREF_RE.search(attrs)
             if not href:
+                return ""
+            if a_open_depth > 0:
                 return ""
             a_open_depth += 1
             return f'<a href="{href.group(1)}">'

@@ -26,7 +26,6 @@ def test_removes_dead_feeds_from_ai_blogs(tmp_path):
         '  "https://krebsonsecurity.com/feed/",\n'
         ']\n'
         'prompt_template = "ai_blogs.md"\ntop_n = 25\nschedule = "5 5,17 * * *"\n')
-    rc = drop_dead_feeds.main.__wrapped__ if False else None
     # call directly with a patched sys.argv
     import sys as _s
     old = _s.argv

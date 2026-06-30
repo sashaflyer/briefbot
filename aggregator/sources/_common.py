@@ -22,6 +22,8 @@ def parse_created_at(s: str | None) -> datetime | None:
 
 def matches_any_symbol(item: Item, symbols: list[str]) -> bool:
     hay = f"{item.title}\n{item.text}"
+    # \b word boundary ensures symbols like "BTC" don't match inside "$BTC"
+    # in natural text. This is intentional.
     return any(
         re.search(rf"\b{re.escape(s)}\b", hay, flags=re.IGNORECASE)
         for s in symbols

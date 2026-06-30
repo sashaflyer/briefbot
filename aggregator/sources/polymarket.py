@@ -119,6 +119,10 @@ class PolymarketSource(Source):
             return []
 
         # Concurrent fetch per tag; one tag's failure shouldn't kill the rest.
+        # Note: vendored search_polymarket spawns its own ThreadPoolExecutor.
+        # Combined with asyncio.to_thread, this creates nested thread pools.
+        # If thread explosion becomes an issue, consider patching the vendor's
+        # thread pool or running Polymarket fetches with a bounded semaphore.
         results = await asyncio.gather(
             *(asyncio.to_thread(_fetch_by_tag, tag, 50) for tag in tags),
             return_exceptions=True,

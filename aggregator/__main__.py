@@ -99,6 +99,9 @@ async def serve(*, config_path: str) -> None:
         try:
             loop.add_signal_handler(sig, stop.set)
         except NotImplementedError:
+            # Note: add_signal_handler is Unix-only. On Windows, graceful
+            # shutdown (with scheduler.wait=True) is not supported. The bot
+            # stops via Ctrl+C.
             pass
 
     log.info("starting bot + scheduler")

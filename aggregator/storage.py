@@ -67,7 +67,8 @@ CREATE INDEX IF NOT EXISTS idx_delivered_findings_topic_delivered_at
 
 
 def _iso(at: datetime) -> str:
-    assert at.tzinfo is not None, "datetime passed to _iso must be tz-aware"
+    if at.tzinfo is None:
+        raise ValueError(f"Expected tz-aware datetime, got naive: {at}")
     return at.isoformat()
 
 
@@ -110,27 +111,30 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 # may collide if two rows canonicalize to the same value;
                 # INSERT OR IGNORE pattern doesn't apply to UPDATE, so we
                 # collapse duplicates manually.
-                rows = conn.execute(
+                cursor = conn.execute(
                     "SELECT id, topic_id, url FROM delivered_findings"
-                ).fetchall()
+                )
                 seen: dict[tuple[str, str], int] = {}
-                for row_id, topic_id, url in rows:
-                    new = canonicalize(url)
-                    key = (topic_id, new)
-                    if key in seen:
-                        # Another row already holds the canonical form here;
-                        # drop this duplicate to keep the UNIQUE index happy.
-                        conn.execute(
-                            "DELETE FROM delivered_findings WHERE id=?",
-                            (row_id,),
-                        )
-                        continue
-                    seen[key] = row_id
-                    if new != url:
-                        conn.execute(
-                            "UPDATE delivered_findings SET url=? WHERE id=?",
-                            (new, row_id),
-                        )
+                batch_size = 1000
+                while True:
+                    batch = cursor.fetchmany(batch_size)
+                    if not batch:
+                        break
+                    for row_id, topic_id, url in batch:
+                        new = canonicalize(url)
+                        key = (topic_id, new)
+                        if key in seen:
+                            conn.execute(
+                                "DELETE FROM delivered_findings WHERE id=?",
+                                (row_id,),
+                            )
+                            continue
+                        seen[key] = row_id
+                        if new != url:
+                            conn.execute(
+                                "UPDATE delivered_findings SET url=? WHERE id=?",
+                                (new, row_id),
+                            )
             conn.execute("UPDATE project_schema_version SET version = ?", (v,))
             current = v
 
@@ -148,6 +152,9 @@ class Storage:
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
+            # Safety: all SQLite access happens on the event loop thread.
+            # If asyncio.to_thread callbacks ever access the connection,
+            # this must be revisited.
             self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
         return self._conn
@@ -358,9 +365,10 @@ class Storage:
     ) -> int:
         """Record the items just delivered for `topic_id` so future digests can
         filter them out. Items with no URL fall back to ``id:<source-id>`` as a
-        dedup key; items with neither are skipped. Returns rows actually
-        inserted (UNIQUE index collisions via INSERT OR IGNORE return 0 from
-        Cursor.rowcount, so re-deliveries don't inflate the count).
+        dedup key; items with neither are skipped. Returns the number of items
+        attempted (not actual inserts; UNIQUE index collisions via INSERT OR
+        IGNORE return 0 from Cursor.rowcount, so re-deliveries don't inflate
+        the count).
         """
         ts = _iso(at)
         rows = []

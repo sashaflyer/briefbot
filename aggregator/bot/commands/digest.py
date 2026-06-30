@@ -65,17 +65,17 @@ async def handle_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     lock = lock_for(topic_id)
-    try:
-        await asyncio.wait_for(lock.acquire(), timeout=0.001)
-    except (asyncio.TimeoutError, asyncio.CancelledError):
+    if lock.locked():
         await update.message.reply_text(
             f"Digest for {topic_id} is already running. Try again shortly."
         )
         return
+    await lock.acquire()
 
+    typing_stop = asyncio.Event()
+    typing_task = None
     try:
         await update.message.reply_text(f"Running digest for {topic_id}…")
-        typing_stop = asyncio.Event()
         typing_task = asyncio.create_task(
             _typing_loop(context.bot, update.effective_chat.id, typing_stop)
         )
@@ -88,9 +88,10 @@ async def handle_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
     finally:
         typing_stop.set()
-        typing_task.cancel()
-        try:
-            await typing_task
-        except asyncio.CancelledError:
-            pass
+        if typing_task is not None:
+            typing_task.cancel()
+            try:
+                await typing_task
+            except asyncio.CancelledError:
+                pass
         lock.release()

@@ -58,7 +58,7 @@ PATCH_FROM_LIB_IMPORT = {"store.py"}
 
 
 def fetch(url: str) -> bytes:
-    with urllib.request.urlopen(url) as r:
+    with urllib.request.urlopen(url, timeout=30) as r:
         return r.read()
 
 

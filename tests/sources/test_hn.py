@@ -87,6 +87,16 @@ async def test_hn_failure_propagates_to_gather():
             _fetch_hn("bitcoin")
 
 
+@pytest.mark.asyncio
+async def test_hn_source_fetch_propagates_error():
+    """HnSource.fetch should not raise — gather catches it and returns empty."""
+    source = HnSource()
+    with patch("aggregator.sources.hn._upstream.search_hackernews",
+               side_effect=RuntimeError("boom")):
+        items = await source.fetch({"hn_keywords": ["test"]})
+        assert items == []
+
+
 def test_parse_created_at_bad_in_hn():
     from aggregator.sources._common import parse_created_at
     assert parse_created_at("not a date") is None

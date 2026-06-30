@@ -29,6 +29,7 @@ from typing import Any
 
 import feedparser
 import httpx
+from urllib.parse import urlparse
 
 from aggregator.sources.base import Item, Source
 from aggregator.sources._common import matches_any_symbol
@@ -36,6 +37,7 @@ from aggregator.sources._common import matches_any_symbol
 log = logging.getLogger(__name__)
 
 _UA = "Mozilla/5.0 (compatible; briefbot/0.2; +rss)"
+_BLOCKED_SCHEMES = frozenset({"file", "ftp", "gopher"})
 _RECENCY_BASE = 200.0
 # Per-fetch HTTP timeout. Kept short enough that a wedged server doesn't
 # block the whole batch; long enough to tolerate slow RSS endpoints.
@@ -44,6 +46,13 @@ _HTTP_TIMEOUT_S = 20.0
 # of half-open connections to slow endpoints and stops a 30-feed topic
 # from queueing dozens of sockets while we wait.
 _MAX_CONNECTIONS = 10
+
+
+def _validate_url(url: str) -> None:
+    """Reject URL schemes that could cause SSRF (e.g. file://, ftp://)."""
+    parsed = urlparse(url)
+    if parsed.scheme.lower() in _BLOCKED_SCHEMES:
+        raise ValueError(f"Blocked URL scheme: {parsed.scheme}")
 
 
 def _parse_entries(content: bytes) -> list[dict[str, Any]]:
@@ -71,6 +80,7 @@ async def _fetch_one(client: httpx.AsyncClient, url: str) -> list[dict[str, Any]
     runs in a worker thread because it is sync and CPU-bound (the loop
     must not block on it for tens of ms at a time).
     """
+    _validate_url(url)
     resp = await client.get(url, headers={"User-Agent": _UA}, follow_redirects=True)
     resp.raise_for_status()
     return await asyncio.to_thread(_parse_entries, resp.content)
@@ -88,7 +98,7 @@ async def _gather_urls(urls: list[str]) -> list[list[dict[str, Any]] | Exception
     to the same host (e.g. multiple tag feeds under cointelegraph.com) reuse
     a TCP/TLS connection instead of paying handshake cost per fetch.
     """
-    limits = httpx.Limits(max_connections=_MAX_CONNECTIONS, max_keepalive_connections=5)
+    limits = httpx.Limits(max_connections=_MAX_CONNECTIONS, max_keepalive_connections=min(5, _MAX_CONNECTIONS))
     timeout = httpx.Timeout(_HTTP_TIMEOUT_S)
     async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
         return await asyncio.gather(

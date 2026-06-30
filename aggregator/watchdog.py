@@ -44,7 +44,11 @@ def sd_notify(state: str) -> bool:
             sock.sendto(state.encode("utf-8"), addr)
         return True
     except OSError as e:
-        log.warning("sd_notify failed (%s): %s", state.splitlines()[0], e)
+        lines = state.splitlines()
+        if lines:
+            log.warning("sd_notify failed (%s): %s", lines[0], e)
+        else:
+            log.warning("sd_notify failed (empty state): %s", e)
         return False
 
 

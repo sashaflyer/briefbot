@@ -21,6 +21,8 @@ from aggregator.vendor.last30days import hackernews as _upstream
 log = logging.getLogger(__name__)
 
 
+# Global semaphore to bound concurrent HN API calls across all topics.
+# HN Algolia has rate limits; 5 concurrent requests is conservative.
 _HN_SEM = asyncio.Semaphore(5)
 
 
@@ -54,6 +56,8 @@ def _to_item(raw: dict[str, Any]) -> Item | None:
          "author": ..., "date": "YYYY-MM-DD",
          "engagement": {"points": int, "comments": int}, ...}
     """
+    # HN vendor provides date-only strings (no time component).
+    # Items appear published at 00:00:00 UTC, slightly inflating recency scores.
     created_at = parse_created_at(raw.get("date"))
     if created_at is None:
         return None
