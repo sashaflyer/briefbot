@@ -49,7 +49,7 @@ def engagement_score(item: Item, *, scoring: "Config | None" = None) -> float:
     per_source: dict[str, list[tuple[str, float]]] = {
         "hackernews":  [("points", 0.55), ("comments", 0.45)],
         "polymarket":  [("volume", 0.60), ("liquidity", 0.40)],
-        "github":      [("reactions", 0.70), ("comments", 0.30)],
+        "github":      [("stars", 0.80), ("forks", 0.20)],
     }
 
     weights = per_source.get(source)

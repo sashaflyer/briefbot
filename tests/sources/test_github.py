@@ -14,7 +14,7 @@ async def test_fetch_with_github_keywords():
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     calls = []
 
-    async def capture(client, query, token, days=1):
+    async def capture(client, query, token, days=7):
         calls.append(query)
         return fixture["items"]
 
@@ -22,10 +22,10 @@ async def test_fetch_with_github_keywords():
         with patch("aggregator.sources.github._search_github", side_effect=capture):
             src = GithubSource()
             items = await src.fetch({
-                "github_keywords": ["bitcoin", "ethereum"],
+                "github_keywords": ["ethereum", "bitcoin"],
             })
 
-    assert calls == ["bitcoin", "ethereum"]
+    assert calls == ["ethereum", "bitcoin"]
     assert len(items) == 2
     assert all(it.source == "github" for it in items)
     assert all(it.id.startswith("github:") for it in items)
@@ -36,7 +36,7 @@ async def test_fetch_falls_back_to_hn_keywords():
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     calls = []
 
-    async def capture(client, query, token, days=1):
+    async def capture(client, query, token, days=7):
         calls.append(query)
         return fixture["items"]
 
@@ -57,7 +57,7 @@ async def test_fetch_with_symbols():
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     calls = []
 
-    async def capture(client, query, token, days=1):
+    async def capture(client, query, token, days=7):
         calls.append(query)
         return fixture["items"]
 
@@ -88,82 +88,92 @@ async def test_fetch_with_empty_queries_returns_empty():
 async def test_fetch_deduplicates_across_queries():
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
 
-    async def capture(client, query, token, days=1):
+    async def capture(client, query, token, days=7):
         return fixture["items"]
 
     with patch("aggregator.sources.github._resolve_token", return_value="fake"):
         with patch("aggregator.sources.github._search_github", side_effect=capture):
             src = GithubSource()
             items = await src.fetch({
-                "github_keywords": ["bitcoin", "crypto"],
+                "github_keywords": ["ethereum", "bitcoin"],
             })
 
     # Same items returned for both queries; dedup should collapse to 2.
     assert len(items) == 2
 
 
-def test_to_item_maps_engagement():
+def test_to_item_maps_repo_fields():
     raw = {
         "id": 999,
-        "html_url": "https://github.com/test/repo/issues/1",
-        "title": "Test issue",
-        "body": "Hello world",
-        "state": "open",
-        "created_at": "2026-06-16T12:00:00Z",
-        "user": {"login": "testuser"},
-        "labels": [{"name": "bug"}],
-        "reactions": {"total_count": 15},
-        "comments": 8,
+        "full_name": "test/repo",
+        "html_url": "https://github.com/test/repo",
+        "description": "A test repository",
+        "stargazers_count": 1234,
+        "forks_count": 567,
+        "open_issues_count": 42,
+        "language": "Python",
+        "topics": ["python", "testing"],
+        "pushed_at": "2026-06-16T12:00:00Z",
+        "created_at": "2020-01-01T00:00:00Z",
+        "owner": {"login": "testuser"},
     }
     item = _to_item(raw)
     assert item is not None
-    assert item.engagement_raw["reactions"] == 15
-    assert item.engagement_raw["score"] == 15
-    assert item.engagement_raw["comments"] == 8
-    assert item.metadata["author"] == "testuser"
-    assert item.metadata["repo"] == "test/repo"
-    assert item.metadata["is_pr"] is False
-    assert item.metadata["labels"] == ["bug"]
+    assert item.title == "test/repo"
+    assert item.text == "A test repository"
+    assert item.engagement_raw["stars"] == 1234
+    assert item.engagement_raw["forks"] == 567
+    assert item.engagement_raw["open_issues"] == 42
+    assert item.metadata["owner"] == "testuser"
+    assert item.metadata["language"] == "Python"
+    assert item.metadata["topics"] == ["python", "testing"]
+    assert item.metadata["pushed_at"] == "2026-06-16T12:00:00+00:00"
 
 
-def test_to_item_detects_pull_request():
+def test_to_item_truncates_long_description():
     raw = {
-        "id": 1000,
-        "html_url": "https://github.com/test/repo/pull/42",
-        "title": "Fix something",
-        "body": "",
-        "state": "open",
-        "created_at": "2026-06-16T12:00:00Z",
-        "user": {"login": "dev"},
-        "labels": [],
-        "reactions": {"total_count": 3},
-        "comments": 1,
-        "pull_request": {"url": "https://api.github.com/repos/test/repo/pulls/42"},
+        "id": 1,
+        "full_name": "x/y",
+        "html_url": "https://github.com/x/y",
+        "description": "A" * 500,
+        "stargazers_count": 10,
+        "forks_count": 2,
+        "open_issues_count": 0,
+        "language": "Go",
+        "topics": [],
+        "pushed_at": "2026-06-16T12:00:00Z",
+        "created_at": "2026-01-01T00:00:00Z",
+        "owner": {"login": "u"},
     }
     item = _to_item(raw)
     assert item is not None
-    assert item.metadata["is_pr"] is True
+    assert len(item.text) == 300
 
 
 def test_to_item_returns_none_without_url():
-    raw = {"id": 1, "title": "No URL", "created_at": "2026-06-16T12:00:00Z"}
+    raw = {"id": 1, "full_name": "x/y", "created_at": "2026-06-16T12:00:00Z"}
     assert _to_item(raw) is None
 
 
 def test_to_item_returns_none_without_date():
-    raw = {"id": 1, "html_url": "https://github.com/x/y/issues/1", "title": "No date"}
+    raw = {"id": 1, "html_url": "https://github.com/x/y", "full_name": "x/y"}
     assert _to_item(raw) is None
 
 
 def test_to_item_parses_created_at_as_aware_datetime():
     raw = {
         "id": 1,
-        "html_url": "https://github.com/x/y/issues/1",
-        "title": "T",
+        "full_name": "x/y",
+        "html_url": "https://github.com/x/y",
+        "description": "",
+        "stargazers_count": 0,
+        "forks_count": 0,
+        "open_issues_count": 0,
+        "language": "",
+        "topics": [],
+        "pushed_at": "2026-06-16T12:00:00Z",
         "created_at": "2026-06-16T12:00:00Z",
-        "user": {"login": "u"},
-        "reactions": {"total_count": 0},
-        "comments": 0,
+        "owner": {"login": "u"},
     }
     item = _to_item(raw)
     assert item is not None
@@ -173,7 +183,7 @@ def test_to_item_parses_created_at_as_aware_datetime():
 
 @pytest.mark.asyncio
 async def test_fetch_subquery_failure_does_not_kill_batch():
-    async def side_effect(client, query, token, days=1):
+    async def side_effect(client, query, token, days=7):
         if query == "fail":
             raise RuntimeError("boom")
         return []

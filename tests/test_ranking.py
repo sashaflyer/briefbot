@@ -54,17 +54,17 @@ def test_engagement_score_polymarket_volume_dominates():
 # ── engagement_score: github ─────────────────────────────────────────────────
 
 def test_engagement_score_github():
-    item = _mk("github", {"reactions": 200, "comments": 30})
+    item = _mk("github", {"stars": 5000, "forks": 200})
     score = engagement_score(item)
     assert score > 0
 
 
-def test_engagement_score_github_reactions_dominates():
-    hi_rxn = _mk("github", {"reactions": 1000, "comments": 0}, id="r")
-    hi_cmt = _mk("github", {"reactions": 0, "comments": 1000}, id="c")
-    s_rxn = engagement_score(hi_rxn)
-    s_cmt = engagement_score(hi_cmt)
-    assert s_rxn > s_cmt
+def test_engagement_score_github_stars_dominates():
+    hi_stars = _mk("github", {"stars": 10000, "forks": 0}, id="s")
+    hi_forks = _mk("github", {"stars": 0, "forks": 10000}, id="f")
+    s_stars = engagement_score(hi_stars)
+    s_forks = engagement_score(hi_forks)
+    assert s_stars > s_forks
 
 
 # ── engagement_score: rss fallback ────────────────────────────────────────────

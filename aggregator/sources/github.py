@@ -1,6 +1,6 @@
-"""GitHub source adapter — searches issues and PRs via the GitHub Search API.
+"""GitHub source adapter — searches repositories via the GitHub Search API.
 
-Uses ``api.github.com/search/issues`` (free, rate-limited to 10 req/min
+Uses ``api.github.com/search/repositories`` (free, rate-limited to 10 req/min
 for authenticated users). Auth via ``GITHUB_TOKEN`` env var or
 ``gh auth token`` CLI fallback.
 
@@ -29,7 +29,7 @@ from aggregator.sources.base import Item, Source
 
 log = logging.getLogger(__name__)
 
-_SEARCH_URL = "https://api.github.com/search/issues"
+_SEARCH_URL = "https://api.github.com/search/repositories"
 _USER_AGENT = "briefbot/0.2"
 _HTTP_TIMEOUT_S = 15.0
 # Per-keyword result cap. Keeps the pipeline bounded while still surfacing
@@ -55,18 +55,21 @@ def _resolve_token() -> str | None:
 
 
 async def _search_github(
-    client: httpx.AsyncClient, query: str, token: str, days: int = 1,
+    client: httpx.AsyncClient, query: str, token: str, days: int = 7,
 ) -> list[dict[str, Any]]:
-    """Search GitHub issues/PRs for *query* from the last *days*.
+    """Search GitHub repositories for *query* with recent activity.
 
     Returns a list of raw GitHub Search API item dicts. Returns an empty
     list on any failure (auth, network, rate-limit).
+
+    Repos are filtered to those pushed in the last *days* days and sorted
+    by stars (most popular first).
     """
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
-    q = f"{query} created:>{since}"
+    q = f"{query} pushed:>{since}"
     params = urllib.parse.urlencode({
         "q": q,
-        "sort": "reactions",
+        "sort": "stars",
         "order": "desc",
         "per_page": str(_PER_QUERY_LIMIT),
     })
@@ -92,7 +95,7 @@ async def _search_github(
 
 
 def _to_item(raw: dict[str, Any]) -> Item | None:
-    """Map a GitHub Search API item to our Item. Returns None if unparseable."""
+    """Map a GitHub Search API repo item to our Item. Returns None if unparseable."""
     html_url = raw.get("html_url", "")
     if not html_url:
         return None
@@ -105,51 +108,46 @@ def _to_item(raw: dict[str, Any]) -> Item | None:
     except (ValueError, TypeError):
         return None
 
-    title = (raw.get("title") or "").strip()
-    body = raw.get("body") or ""
-    author = ""
-    user = raw.get("user")
-    if isinstance(user, dict):
-        author = user.get("login", "")
+    full_name = raw.get("full_name", "")
+    title = full_name or raw.get("name", "")
+    description = (raw.get("description") or "").strip()
+    language = raw.get("language") or ""
+    topics = raw.get("topics") or []
+    stars = raw.get("stargazers_count", 0) or 0
+    forks = raw.get("forks_count", 0) or 0
+    open_issues = raw.get("open_issues_count", 0) or 0
+    pushed_at_str = raw.get("pushed_at")
+    pushed_at = None
+    if pushed_at_str:
+        try:
+            pushed_at = datetime.fromisoformat(pushed_at_str.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            pass
 
-    reactions = raw.get("reactions") or {}
-    reaction_count = reactions.get("total_count", 0) if isinstance(reactions, dict) else 0
-    comment_count = raw.get("comments", 0)
-
-    is_pr = "pull_request" in raw
-    labels = [
-        lbl.get("name", "")
-        for lbl in (raw.get("labels") or [])
-        if isinstance(lbl, dict)
-    ]
-
-    # Extract owner/repo from the URL for metadata.
-    repo = ""
-    parts = html_url.replace("https://github.com/", "").split("/")
-    if len(parts) >= 2:
-        repo = f"{parts[0]}/{parts[1]}"
+    owner = ""
+    owner_obj = raw.get("owner")
+    if isinstance(owner_obj, dict):
+        owner = owner_obj.get("login", "")
 
     native_id = str(raw.get("id") or html_url)
-    snippet = body[:300] if body else ""
 
     return Item(
         id=f"github:{native_id}",
         source="github",
         title=title,
         url=html_url,
-        text=snippet,
+        text=description[:300] if description else "",
         created_at=created_at,
         engagement_raw={
-            "reactions": reaction_count,
-            "score": reaction_count,
-            "comments": comment_count,
+            "stars": stars,
+            "forks": forks,
+            "open_issues": open_issues,
         },
         metadata={
-            "author": author,
-            "repo": repo,
-            "is_pr": is_pr,
-            "labels": labels,
-            "state": raw.get("state", ""),
+            "owner": owner,
+            "language": language,
+            "topics": topics,
+            "pushed_at": pushed_at.isoformat() if pushed_at else None,
         },
     )
 
