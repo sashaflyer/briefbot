@@ -3,7 +3,7 @@ timezone = "UTC"
 
 [scoring]
 dedup_window_days = 7
-per_author_cap = 4
+per_author_cap = 0
 
 [synth]
 model = "gpt-5.4-mini"
