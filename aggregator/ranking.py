@@ -116,29 +116,9 @@ def cap_per_symbol(
     return out
 
 
-def apply_per_author_cap(items: list[Item], cap: int) -> list[Item]:
-    """Keep at most `cap` items per (source, author) pair, preserving order."""
-    if cap <= 0:
-        return items
-    counts: dict[tuple[str, str], int] = {}
-    out: list[Item] = []
-    dropped = 0
-    for it in items:
-        effective_author = (it.metadata.get("author") or "").strip() or "__anonymous__"
-        key = (it.source, effective_author)
-        if counts.get(key, 0) >= cap:
-            dropped += 1
-            continue
-        counts[key] = counts.get(key, 0) + 1
-        out.append(it)
-    if dropped:
-        log.info("per-author cap: dropped %d items (cap=%d)", dropped, cap)
-    return out
-
-
-def score_and_dedup(items: list[Item], *, top_n: int, per_author_cap: int,
+def score_and_dedup(items: list[Item], *, top_n: int,
                     scoring: "Config | None" = None) -> list[Item]:
-    """Sort by engagement, dedupe, apply per-author cap, truncate to top_n."""
+    """Sort by engagement, dedupe, truncate to top_n."""
     if not items:
         return []
 
@@ -160,5 +140,4 @@ def score_and_dedup(items: list[Item], *, top_n: int, per_author_cap: int,
     deduped_items = [by_id[si.item_id] for si in deduped if si.item_id in by_id]
     log.info("dedupe: %d -> %d items", len(items), len(deduped_items))
 
-    capped = apply_per_author_cap(deduped_items, per_author_cap)
-    return capped[:top_n]
+    return deduped_items[:top_n]

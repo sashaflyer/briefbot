@@ -78,7 +78,7 @@ def test_engagement_score_rss_fallback():
 def test_engagement_score_rss_uses_global_weights():
     from aggregator.config import ScoringConfig
     scoring = ScoringConfig(
-        dedup_window_days=7, per_author_cap=3,
+        dedup_window_days=7,
         weight_upvotes=1.0, weight_score=1.0,
         weight_comments=0.1, weight_volume=0.001,
     )
@@ -169,7 +169,7 @@ def test_score_and_dedup_returns_sorted_by_engagement():
     hi = Item(id="hi", source="hackernews", title="high",
               url="https://hi", text="y", created_at=now,
               engagement_raw={"points": 1000, "comments": 500}, metadata={})
-    out = score_and_dedup([lo, hi], top_n=10, per_author_cap=0)
+    out = score_and_dedup([lo, hi], top_n=10)
     assert len(out) >= 1
     assert out[0].id == "hi"
 
@@ -182,9 +182,9 @@ def test_score_and_dedup_truncates_to_top_n():
              created_at=now, engagement_raw={"score": 100 - i}, metadata={})
         for i in range(20)
     ]
-    out = score_and_dedup(items, top_n=5, per_author_cap=0)
+    out = score_and_dedup(items, top_n=5)
     assert len(out) <= 5
 
 
 def test_score_and_dedup_empty_input():
-    assert score_and_dedup([], top_n=10, per_author_cap=0) == []
+    assert score_and_dedup([], top_n=10) == []

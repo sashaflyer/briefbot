@@ -14,7 +14,6 @@ from aggregator.ranking import (
     score_and_dedup,
     item_to_source_item,
     engagement_score,
-    apply_per_author_cap,
 )
 from aggregator.sources.base import Item, Source
 from aggregator.sources.github import GithubSource
@@ -56,7 +55,6 @@ if set(SOURCES.keys()) != set(KNOWN_SOURCE_KEYS):
 # pipeline._score_and_dedup etc. Canonical implementations live in ranking.py.
 _score_and_dedup = score_and_dedup
 _cap_per_symbol = cap_per_symbol
-_apply_per_author_cap = apply_per_author_cap
 _item_to_source_item = item_to_source_item
 
 
@@ -234,13 +232,13 @@ async def run_digest(topic_id: str, cfg: Config, storage: Storage, *,
     if topic.kind == "general":
         ranked = await asyncio.to_thread(
             _score_and_dedup, items, top_n=topic.top_n,
-            per_author_cap=cfg.scoring.per_author_cap, scoring=cfg.scoring,
+            scoring=cfg.scoring,
         )
     else:
         pre_cap = topic.per_symbol_top_n * len(topic.canonical_symbols) * _PRE_CAP_MULTIPLIER
         ranked = await asyncio.to_thread(
             _score_and_dedup, items, top_n=pre_cap,
-            per_author_cap=cfg.scoring.per_author_cap, scoring=cfg.scoring,
+            scoring=cfg.scoring,
         )
         alias_map: dict[str, str] = {}
         for w in topic.watch:

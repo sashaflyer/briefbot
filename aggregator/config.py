@@ -207,7 +207,6 @@ class ScoringConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dedup_window_days: int = Field(ge=1, le=365)
-    per_author_cap: int = Field(ge=0)
     weight_upvotes: float = 1.0
     weight_score: float = 1.0
     weight_comments: float = 0.1
